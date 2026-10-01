@@ -1,0 +1,28 @@
+{
+  "name": "maja-erp",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"node --disable-warning=ExperimentalWarning --watch server/index.js\" \"vite\"",
+    "build": "vite build",
+    "start": "node --disable-warning=ExperimentalWarning server/index.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "lucide-react": "^1.49.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.6",
+    "recharts": "^2.15.4",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.6.1",
+    "concurrently": "^10.0.5",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^3.4.19",
+    "vite": "^5.4.21"
+  }
+}

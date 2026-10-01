@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: #f4f0e8;
+  --card: #fbf9f5;
+  --sunk: #ece6db;
+  --ink: #1d1b18;
+  --ink-2: #4a453e;
+  --muted: #857d71;
+  --line: #e0d8ca;
+  --accent: #7c2d23;
+  --accent-soft: #f0e2dc;
+  --ok: #2f6b47;
+  --ok-soft: #e1ede4;
+  --warn: #9a6210;
+  --warn-soft: #f5ead6;
+  --bad: #a2342a;
+  --bad-soft: #f6e0dc;
+  color-scheme: light;
+}
+
+html, body, #root { min-height: 100%; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Schibsted Grotesk', system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'tnum' 1;
+}
+/* grano muy sutil para que el papel no sea plano */
+body::before {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .35;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.38 0 0 0 0 0.3 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+#root { position: relative; z-index: 1; }
+
+.num { font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+.field {
+  @apply w-full rounded-md border border-line bg-card px-3 py-2 text-[14px] text-ink outline-none transition;
+}
+.field:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(29, 27, 24, .08); }
+.field:disabled { background: var(--sunk); color: var(--muted); }
+select.field { appearance: none; padding-right: 2rem; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23857d71' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .7rem center; }
+
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl th { @apply text-left font-semibold text-muted border-b border-line px-3 py-2.5 whitespace-nowrap; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.tbl td { @apply border-b border-line px-3 py-2.5 align-middle; }
+.tbl tbody tr { transition: background .12s; }
+.tbl tbody tr:hover { background: rgba(236, 230, 219, .55); }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise .45s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+.fade { animation: fade .2s ease both; }
+@media (prefers-reduced-motion: reduce) { .rise, .fade { animation: none; } }
+
+::selection { background: var(--accent); color: var(--paper); }
