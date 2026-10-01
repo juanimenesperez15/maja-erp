@@ -140,6 +140,42 @@ CREATE INDEX IF NOT EXISTS ix_sale_items_brand ON sale_items(brand_id);
 CREATE INDEX IF NOT EXISTS ix_payments_brand ON payments(brand_id, period);
 `);
 
+// ---------- columnas agregadas después de la primera versión ----------
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+// facturación de cada marca
+ensureColumn('brands', 'razon_social', 'TEXT');
+ensureColumn('brands', 'billing_mode', "TEXT NOT NULL DEFAULT 'manual'"); // manual | cuenta_ajena | biller_marca
+ensureColumn('brands', 'iva_mode', "TEXT NOT NULL DEFAULT 'basica'"); // basica | minimo | exento
+ensureColumn('brands', 'biller_token', 'TEXT');
+ensureColumn('brands', 'biller_sucursal', 'TEXT');
+ensureColumn('brands', 'biller_env', "TEXT NOT NULL DEFAULT 'produccion'");
+// cada venta se factura a nombre de una sola marca
+ensureColumn('sales', 'brand_id', 'INTEGER REFERENCES brands(id)');
+ensureColumn('sales', 'cfe_kind', "TEXT NOT NULL DEFAULT 'ticket'"); // ticket | factura
+ensureColumn('sales', 'customer_doc_type', 'TEXT');
+ensureColumn('sales', 'customer_doc', 'TEXT');
+ensureColumn('sales', 'customer_name', 'TEXT');
+ensureColumn('sales', 'customer_email', 'TEXT');
+ensureColumn('sales', 'invoice_status', "TEXT NOT NULL DEFAULT 'manual'"); // manual | emitida | error
+ensureColumn('sales', 'invoice_number', 'TEXT');
+ensureColumn('sales', 'invoice_error', 'TEXT');
+ensureColumn('sales', 'cfe_id', 'TEXT');
+ensureColumn('sales', 'cfe_tipo', 'INTEGER');
+ensureColumn('sales', 'cfe_serie', 'TEXT');
+ensureColumn('sales', 'cfe_numero', 'TEXT');
+ensureColumn('sales', 'cfe_mode', 'TEXT');
+ensureColumn('sales', 'ref_sale_id', 'INTEGER REFERENCES sales(id)');
+ensureColumn('sales', 'void_cfe_id', 'TEXT');
+ensureColumn('sales', 'void_cfe_number', 'TEXT');
+// armado de pedidos y quién retiró
+ensureColumn('order_items', 'picked_qty', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('orders', 'picked_up_by', 'TEXT');
+db.exec(`UPDATE sales SET brand_id = (SELECT si.brand_id FROM sale_items si WHERE si.sale_id = sales.id LIMIT 1) WHERE brand_id IS NULL`);
+db.exec(`UPDATE sales SET invoice_number = ticket WHERE invoice_number IS NULL AND ticket IS NOT NULL`);
+
 export function getSetting(key) {
   return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
 }

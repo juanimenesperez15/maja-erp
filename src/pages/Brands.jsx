@@ -1,19 +1,30 @@
 import { useState } from 'react';
-import { Plus, Store, Pencil } from 'lucide-react';
+import { Plus, Store, Pencil, FileText, Receipt } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useSession } from '../lib/session.jsx';
-import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Textarea, useToast } from '../components/ui.jsx';
+import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Modal, PageHeader, Select, Textarea, useToast } from '../components/ui.jsx';
+import { useApi } from '../lib/session.jsx';
 import { fmtInt, fmtMoney, fmtPct, fmtPeriod } from '../lib/format.js';
 
-const EMPTY = { name: '', contact_name: '', email: '', phone: '', rut: '', commission_pct: '', monthly_fee: '', plus_iva: false, start_period: '', notes: '', active: true };
+const EMPTY = {
+  name: '', contact_name: '', email: '', phone: '', rut: '', commission_pct: '', monthly_fee: '', plus_iva: false, start_period: '', notes: '', active: true,
+  razon_social: '', billing_mode: 'manual', iva_mode: 'basica', biller_token: '', biller_sucursal: '', biller_env: 'produccion',
+};
+export const BILLING_LABEL = {
+  manual: 'Factura a mano',
+  cuenta_ajena: 'Biller de MAJA · cuenta ajena',
+  biller_marca: 'Biller propio',
+};
 
 export default function Brands() {
   const { brands, refreshBrands } = useSession();
   const [editing, setEditing] = useState(null);
+  const [billing, setBilling] = useState(false);
 
   return (
     <>
       <PageHeader eyebrow="Administración" title="Marcas">
+        <Button variant="outline" onClick={() => setBilling(true)}><Receipt size={15} />Facturación de MAJA</Button>
         <Button onClick={() => setEditing({ ...EMPTY })}><Plus size={16} />Nueva marca</Button>
       </PageHeader>
 
@@ -43,12 +54,14 @@ export default function Brands() {
                 <Badge>{fmtInt(b.stock_units)} en stock</Badge>
                 <Badge tone={b.user_count ? 'ok' : 'warn'}>{b.user_count ? `${b.user_count} ${b.user_count === 1 ? 'acceso' : 'accesos'}` : 'Sin acceso creado'}</Badge>
               </div>
-              {b.start_period && <div className="mt-3 text-[12px] text-muted">Liquida desde {fmtPeriod(b.start_period)}</div>}
+              <div className="mt-3 flex items-center gap-1.5 text-[12px] text-ink2"><FileText size={13} className="text-muted" />{BILLING_LABEL[b.billing_mode] || BILLING_LABEL.manual}</div>
+              {b.start_period && <div className="mt-1 text-[12px] text-muted">Liquida desde {fmtPeriod(b.start_period)}</div>}
             </Card>
           ))}
         </div>
       )}
 
+      {billing && <MajaBillingModal onClose={() => setBilling(false)} />}
       {editing && <BrandModal brand={editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await refreshBrands(); }} />}
     </>
   );
@@ -91,7 +104,42 @@ function BrandModal({ brand, onClose, onSaved }) {
         <Field label="Contacto"><Input value={form.contact_name} onChange={set('contact_name')} /></Field>
         <Field label="Teléfono"><Input value={form.phone} onChange={set('phone')} /></Field>
         <Field label="Email"><Input type="email" value={form.email} onChange={set('email')} /></Field>
-        <Field label="RUT"><Input value={form.rut} onChange={set('rut')} /></Field>
+        <Field label="RUT"><Input value={form.rut || ''} onChange={set('rut')} /></Field>
+        <Field label="Razón social" className="col-span-2" hint="Como figura en DGI; sale en las facturas emitidas a nombre de la marca"><Input value={form.razon_social || ''} onChange={set('razon_social')} /></Field>
+
+        <div className="col-span-2 mt-2 border-t border-line pt-4">
+          <div className="eyebrow mb-3">Facturación de sus ventas</div>
+          <div className="grid gap-2">
+            {[
+              ['cuenta_ajena', 'MAJA factura por cuenta de la marca', 'e-Ticket / e-Factura de venta por cuenta ajena con el Biller de MAJA; la marca figura como mandante.'],
+              ['biller_marca', 'Con el Biller de la marca', 'Se emite automáticamente con el token de Biller de la marca.'],
+              ['manual', 'A mano', 'La marca factura en su sistema y MAJA anota el número de la factura.'],
+            ].map(([v, t, d]) => (
+              <label key={v} className={`flex cursor-pointer gap-3 rounded-lg border px-3 py-2.5 transition ${form.billing_mode === v ? 'border-ink bg-sunk/60' : 'border-line hover:border-ink/30'}`}>
+                <input type="radio" name="billing_mode" value={v} checked={form.billing_mode === v} onChange={set('billing_mode')} className="mt-1 accent-[#1d1b18]" />
+                <span><span className="block text-[13px] font-semibold">{t}</span><span className="block text-[12px] text-muted">{d}</span></span>
+              </label>
+            ))}
+          </div>
+        </div>
+        {form.billing_mode !== 'manual' && (
+          <Field label="IVA de sus artículos" className="col-span-2">
+            <Select value={form.iva_mode} onChange={set('iva_mode')}>
+              <option value="basica">Régimen general · tasa básica 22 % (incluido en el precio)</option>
+              <option value="minimo">Literal E / IVA mínimo</option>
+              <option value="exento">Exento</option>
+            </Select>
+          </Field>
+        )}
+        {form.billing_mode === 'biller_marca' && <>
+          <Field label="Token de Biller de la marca" hint={form.has_biller_token ? 'Ya hay un token guardado; dejalo vacío para no cambiarlo' : 'Se genera en biller.uy/api/tokens'} className="col-span-2">
+            <Input type="password" value={form.biller_token || ''} onChange={set('biller_token')} autoComplete="off" placeholder={form.has_biller_token ? '••••••••' : ''} />
+          </Field>
+          <Field label="ID de sucursal en Biller" hint="Ajustes → Sucursales"><Input value={form.biller_sucursal || ''} onChange={set('biller_sucursal')} /></Field>
+          <Field label="Ambiente">
+            <Select value={form.biller_env} onChange={set('biller_env')}><option value="produccion">Producción</option><option value="test">Pruebas</option></Select>
+          </Field>
+        </>}
         <Field label="Notas" className="col-span-2"><Textarea value={form.notes || ''} onChange={set('notes')} /></Field>
         {form.id && (
           <label className="col-span-2 flex items-center gap-2 text-[13px]">
@@ -101,6 +149,47 @@ function BrandModal({ brand, onClose, onSaved }) {
         )}
       </div>
       <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>
+    </Modal>
+  );
+}
+
+function MajaBillingModal({ onClose }) {
+  const toast = useToast();
+  const { data, loading } = useApi('/settings/billing');
+  const [form, setForm] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const f = form ?? (data ? { token: '', sucursal: data.sucursal, env: data.env } : null);
+  const set = (k) => (e) => setForm({ ...f, [k]: e.target.value });
+
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api('/settings/billing', { method: 'PUT', body: f });
+      toast('Facturación de MAJA guardada');
+      onClose();
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <Modal open title="Facturación de MAJA" onClose={onClose}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button onClick={save} loading={busy} disabled={!f}>Guardar</Button></>}>
+      {loading || !f ? null : (
+        <div className="space-y-4">
+          <p className="text-[13px] text-ink2">
+            Es la cuenta de Biller de MAJA. Se usa para las marcas que facturan <b>por cuenta ajena</b>: MAJA emite el comprobante y la marca figura como mandante.
+          </p>
+          <Field label="Token de Biller" hint={data.has_token ? 'Ya hay un token guardado; dejalo vacío para no cambiarlo' : 'Se genera en biller.uy/api/tokens'}>
+            <Input type="password" value={f.token} onChange={set('token')} autoComplete="off" placeholder={data.has_token ? '••••••••' : ''} />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="ID de sucursal" hint="Ajustes → Sucursales"><Input value={f.sucursal} onChange={set('sucursal')} /></Field>
+            <Field label="Ambiente"><Select value={f.env} onChange={set('env')}><option value="produccion">Producción</option><option value="test">Pruebas</option></Select></Field>
+          </div>
+          <ErrorNote>{error}</ErrorNote>
+        </div>
+      )}
     </Modal>
   );
 }

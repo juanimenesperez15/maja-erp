@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db.js';
+import { publicBillingSettings, saveBillingSettings } from '../billing.js';
 import { auth, adminOnly, bad, notFound, hashPassword, checkPassword, signToken, publicUser, str, num, isPeriod, HttpError } from '../lib.js';
 
 export const accessRouter = Router();
@@ -51,6 +52,11 @@ function brandBody(b) {
     name: str(b.name), contact_name: str(b.contact_name), email: str(b.email), phone: str(b.phone), rut: str(b.rut),
     commission_pct: pct, monthly_fee: num(b.monthly_fee), plus_iva: b.plus_iva ? 1 : 0,
     start_period: start, notes: str(b.notes), active: b.active === false ? 0 : 1,
+    razon_social: str(b.razon_social),
+    billing_mode: ['manual', 'cuenta_ajena', 'biller_marca'].includes(b.billing_mode) ? b.billing_mode : 'manual',
+    iva_mode: ['basica', 'minimo', 'exento'].includes(b.iva_mode) ? b.iva_mode : 'basica',
+    biller_sucursal: str(b.biller_sucursal),
+    biller_env: b.biller_env === 'test' ? 'test' : 'produccion',
   };
 }
 
@@ -63,15 +69,18 @@ accessRouter.get('/brands', auth, (req, res) => {
       (SELECT COALESCE(SUM(p.stock), 0) FROM products p WHERE p.brand_id = b.id AND p.active = 1) AS stock_units,
       (SELECT COUNT(*) FROM users u WHERE u.brand_id = b.id AND u.active = 1) AS user_count
     FROM brands b ${where} ORDER BY b.active DESC, b.name`).all(...args);
-  res.json(rows.map((r) => ({ ...r, plus_iva: !!r.plus_iva, active: !!r.active })));
+  // el token de Biller nunca sale del servidor
+  res.json(rows.map(({ biller_token, ...r }) => ({ ...r, has_biller_token: !!biller_token, plus_iva: !!r.plus_iva, active: !!r.active })));
 });
 
 accessRouter.post('/brands', auth, adminOnly, (req, res) => {
   const b = brandBody(req.body);
   if (!b.name) throw bad('Poné el nombre de la marca');
   if (db.prepare('SELECT 1 FROM brands WHERE name = ?').get(b.name)) throw bad('Ya existe una marca con ese nombre');
-  const r = db.prepare(`INSERT INTO brands (name, contact_name, email, phone, rut, commission_pct, monthly_fee, plus_iva, start_period, notes, active)
-    VALUES (:name, :contact_name, :email, :phone, :rut, :commission_pct, :monthly_fee, :plus_iva, :start_period, :notes, :active)`).run(b);
+  const r = db.prepare(`INSERT INTO brands (name, contact_name, email, phone, rut, commission_pct, monthly_fee, plus_iva, start_period, notes, active,
+      razon_social, billing_mode, iva_mode, biller_sucursal, biller_env, biller_token)
+    VALUES (:name, :contact_name, :email, :phone, :rut, :commission_pct, :monthly_fee, :plus_iva, :start_period, :notes, :active,
+      :razon_social, :billing_mode, :iva_mode, :biller_sucursal, :biller_env, :biller_token)`).run({ ...b, biller_token: str(req.body.biller_token) });
   res.json({ id: Number(r.lastInsertRowid) });
 });
 
@@ -83,7 +92,10 @@ accessRouter.put('/brands/:id', auth, adminOnly, (req, res) => {
   if (db.prepare('SELECT 1 FROM brands WHERE name = ? AND id <> ?').get(b.name, id)) throw bad('Ya existe una marca con ese nombre');
   db.prepare(`UPDATE brands SET name = :name, contact_name = :contact_name, email = :email, phone = :phone, rut = :rut,
     commission_pct = :commission_pct, monthly_fee = :monthly_fee, plus_iva = :plus_iva, start_period = :start_period,
-    notes = :notes, active = :active WHERE id = :id`).run({ ...b, id });
+    notes = :notes, active = :active, razon_social = :razon_social, billing_mode = :billing_mode, iva_mode = :iva_mode,
+    biller_sucursal = :biller_sucursal, biller_env = :biller_env WHERE id = :id`).run({ ...b, id });
+  // el token solo se reemplaza si mandan uno nuevo
+  if (str(req.body.biller_token)) db.prepare('UPDATE brands SET biller_token = ? WHERE id = ?').run(str(req.body.biller_token), id);
   res.json({ ok: true });
 });
 
@@ -123,4 +135,11 @@ accessRouter.put('/users/:id', auth, adminOnly, (req, res) => {
   db.prepare('UPDATE users SET name = ?, email = ?, role = ?, brand_id = ?, active = ? WHERE id = ?').run(u.name, u.email, u.role, u.brand_id, u.active, id);
   if (req.body.password) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(req.body.password), id);
   res.json({ ok: true });
+});
+
+// ---------- Biller de MAJA (para facturar por cuenta ajena) ----------
+accessRouter.get('/settings/billing', auth, adminOnly, (_req, res) => res.json(publicBillingSettings()));
+accessRouter.put('/settings/billing', auth, adminOnly, (req, res) => {
+  saveBillingSettings(req.body);
+  res.json(publicBillingSettings());
 });

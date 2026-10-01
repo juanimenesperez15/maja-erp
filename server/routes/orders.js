@@ -33,6 +33,7 @@ ordersRouter.get('/orders', (req, res) => {
   const rows = db.prepare(`
     SELECT o.*, b.name AS brand_name,
       (SELECT COALESCE(SUM(qty), 0) FROM order_items WHERE order_id = o.id) AS units,
+      (SELECT COALESCE(SUM(picked_qty), 0) FROM order_items WHERE order_id = o.id) AS picked_units,
       (SELECT COUNT(*) FROM order_items WHERE order_id = o.id) AS lines
     FROM orders o JOIN brands b ON b.id = o.brand_id
     WHERE ${where.join(' AND ')}
@@ -49,7 +50,6 @@ ordersRouter.post('/orders', (req, res) => {
   if (!TYPES.includes(type)) throw bad('Tipo de pedido inválido');
   const items = (Array.isArray(req.body.items) ? req.body.items : []).filter((it) => Math.trunc(num(it.qty)) > 0);
   if (!items.length) throw bad('Agregá al menos un artículo con cantidad');
-  if (type === 'pickup' && !str(req.body.customer_name)) throw bad('Poné el nombre de quien retira');
 
   const clean = items.map((it) => {
     const qty = Math.trunc(num(it.qty));
@@ -75,18 +75,45 @@ ordersRouter.post('/orders', (req, res) => {
   res.json({ id });
 });
 
+// Armado / control: MAJA va marcando cuánto armó (pick up, retiro) o cuánto llegó (ingreso) de cada línea.
+ordersRouter.put('/orders/:id/pick', (req, res) => {
+  if (req.user.role !== 'admin') throw forbidden('El armado lo hace MAJA');
+  const order = loadOrder(req, req.params.id);
+  if (order.status === 'completado' || order.status === 'cancelado') throw bad('Este pedido ya está cerrado');
+  const lines = Array.isArray(req.body.items) ? req.body.items : [];
+  tx(() => {
+    for (const l of lines) {
+      const it = order.items.find((x) => x.id === Number(l.id));
+      if (!it) continue;
+      let q = Math.max(0, Math.trunc(num(l.picked_qty)));
+      // de un ingreso puede llegar más de lo avisado; para entregar no se arma más de lo pedido
+      if (order.type !== 'ingreso') q = Math.min(q, it.qty);
+      db.prepare('UPDATE order_items SET picked_qty = ? WHERE id = ?').run(q, it.id);
+    }
+    db.prepare("UPDATE orders SET updated_at = datetime('now') WHERE id = ?").run(order.id);
+  });
+  res.json(loadOrder(req, order.id));
+});
+
 ordersRouter.put('/orders/:id/status', (req, res) => {
   const order = loadOrder(req, req.params.id);
   const next = req.body.status;
   if (!['pendiente', 'listo', 'completado', 'cancelado'].includes(next)) throw bad('Estado inválido');
   if (order.status === 'completado' || order.status === 'cancelado') throw bad('Este pedido ya está cerrado');
-  if (req.user.role === 'marca' && !(next === 'cancelado' && order.status === 'pendiente')) {
-    throw forbidden('La marca solo puede cancelar pedidos que MAJA todavía no preparó');
+  const picked = order.items.reduce((a, i) => a + i.picked_qty, 0);
+  if (req.user.role === 'marca' && !(next === 'cancelado' && order.status === 'pendiente' && picked === 0)) {
+    throw forbidden('La marca solo puede cancelar pedidos que MAJA todavía no empezó a armar');
   }
+  if ((next === 'listo' || next === 'completado') && picked === 0) {
+    throw bad(order.type === 'ingreso' ? 'Marcá cuánto llegó de cada artículo' : 'Marcá lo que armaste de cada artículo');
+  }
+  const pickedUpBy = str(req.body.picked_up_by);
+  if (next === 'completado' && order.type !== 'ingreso' && !pickedUpBy) throw bad('Anotá quién retiró');
 
   tx(() => {
     if (next === 'completado') {
       for (const it of order.items) {
+        if (!it.picked_qty) continue;
         let pid = it.product_id;
         if (!pid) {
           // alta del artículo nuevo que vino en el ingreso
@@ -95,12 +122,13 @@ ordersRouter.put('/orders/:id/status', (req, res) => {
             .run(order.brand_id, it.sku, it.description, it.variant, it.price || 0).lastInsertRowid);
           db.prepare('UPDATE order_items SET product_id = ? WHERE id = ?').run(pid, it.id);
         }
-        moveStock({ productId: pid, brandId: order.brand_id, qty: SIGN[order.type] * it.qty, reason: REASON[order.type], refType: 'order', refId: order.id, userId: req.user.id });
+        // se mueve lo armado/recibido, no lo pedido: lo que faltó queda a la vista de la marca
+        moveStock({ productId: pid, brandId: order.brand_id, qty: SIGN[order.type] * it.picked_qty, reason: REASON[order.type], refType: 'order', refId: order.id, userId: req.user.id });
       }
     }
-    db.prepare(`UPDATE orders SET status = ?, admin_notes = COALESCE(?, admin_notes), updated_at = datetime('now'),
+    db.prepare(`UPDATE orders SET status = ?, admin_notes = COALESCE(?, admin_notes), picked_up_by = COALESCE(?, picked_up_by), updated_at = datetime('now'),
       completed_at = CASE WHEN ? = 'completado' THEN datetime('now') ELSE completed_at END WHERE id = ?`)
-      .run(next, req.user.role === 'admin' ? str(req.body.admin_notes) : null, next, order.id);
+      .run(next, req.user.role === 'admin' ? str(req.body.admin_notes) : null, next === 'completado' ? pickedUpBy : null, next, order.id);
   });
   res.json(loadOrder(req, order.id));
 });

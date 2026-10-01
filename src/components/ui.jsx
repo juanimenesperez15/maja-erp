@@ -148,8 +148,8 @@ export function ToastProvider({ children }) {
 export const useToast = () => useContext(ToastCtx);
 
 export const STATUS_LABEL = {
-  ingreso: { pendiente: 'Enviado', listo: 'En control', completado: 'Recibido', cancelado: 'Cancelado' },
-  pickup: { pendiente: 'Pendiente', listo: 'Listo para retirar', completado: 'Entregado', cancelado: 'Cancelado' },
+  ingreso: { pendiente: 'Enviado', listo: 'Controlado', completado: 'Recibido', cancelado: 'Cancelado' },
+  pickup: { pendiente: 'Por armar', listo: 'Listo para retirar', completado: 'Retirado', cancelado: 'Cancelado' },
   retiro: { pendiente: 'Solicitado', listo: 'Preparado', completado: 'Retirado', cancelado: 'Cancelado' },
 };
 export const STATUS_TONE = { pendiente: 'warn', listo: 'accent', completado: 'ok', cancelado: 'neutral' };

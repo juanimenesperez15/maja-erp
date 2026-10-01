@@ -1,14 +1,15 @@
 import { Router } from 'express';
 import { db, tx } from '../db.js';
 import {
-  auth, adminOnly, bad, notFound, scopeBrand, requireBrand, moveStock, str, num, round2, today, currentPeriod,
+  auth, adminOnly, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num, round2, today, currentPeriod,
   shiftPeriod, isPeriod, settlementFor, brandPeriods, isPeriodClosed,
 } from '../lib.js';
+import { PAYMENT_METHODS, credentialsFor, emitForSale, emitVoidCreditNote, pdfForSale } from '../billing.js';
 
 export const moneyRouter = Router();
 moneyRouter.use(auth);
 
-const PAYMENT_METHODS = ['Efectivo', 'Débito', 'Crédito', 'Transferencia', 'Mercado Pago', 'Otro'];
+const DOC_TYPES = ['CI', 'RUT', 'PASAPORTE', 'DNI', 'OTRO'];
 
 // ---------- ventas ----------
 moneyRouter.get('/sales', (req, res) => {
@@ -20,18 +21,26 @@ moneyRouter.get('/sales', (req, res) => {
   if (brandId) { where.push('si.brand_id = ?'); args.push(brandId); }
   if (req.user.role === 'marca' || req.query.include_voided !== '1') where.push('s.voided = 0');
   const rows = db.prepare(`
-    SELECT si.*, s.date, s.ticket, s.payment_method, s.notes, s.voided, b.name AS brand_name, p.variant
+    SELECT si.*, s.date, s.payment_method, s.notes, s.voided, s.cfe_kind, s.customer_doc_type, s.customer_doc, s.customer_name,
+      s.invoice_status, s.invoice_number, s.invoice_error, s.cfe_id, s.cfe_mode, s.ref_sale_id, s.void_cfe_id, s.void_cfe_number,
+      b.name AS brand_name, p.variant
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN brands b ON b.id = si.brand_id
     LEFT JOIN products p ON p.id = si.product_id
     WHERE ${where.join(' AND ')} ORDER BY s.date DESC, s.id DESC, si.id`).all(...args);
-  // la marca no ve qué más se llevó el cliente de otras marcas
   if (req.user.role === 'marca') rows.forEach((r) => { delete r.notes; });
   res.json({ from, to, rows, payment_methods: PAYMENT_METHODS });
 });
 
-moneyRouter.post('/sales', adminOnly, (req, res) => {
+moneyRouter.post('/sales', adminOnly, async (req, res) => {
   const date = str(req.body.date) || today();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw bad('Fecha inválida');
+  if (date > today()) throw bad('La fecha no puede ser futura');
+  const brandId = Number(req.body.brand_id);
+  const brand = db.prepare('SELECT * FROM brands WHERE id = ?').get(brandId);
+  if (!brand) throw bad('Elegí a nombre de qué marca se factura');
+  if (!brand.active) throw bad('La marca está inactiva');
+  const payment = str(req.body.payment_method);
+  if (!PAYMENT_METHODS.includes(payment)) throw bad('Elegí el medio de pago');
   const items = Array.isArray(req.body.items) ? req.body.items : [];
   if (!items.length) throw bad('La venta no tiene artículos');
 
@@ -39,56 +48,97 @@ moneyRouter.post('/sales', adminOnly, (req, res) => {
     const qty = Math.trunc(num(it.qty));
     if (!qty) throw bad('Hay una línea con cantidad 0');
     const unit = num(it.unit_price);
-    if (unit < 0) throw bad('Precio negativo');
+    if (unit <= 0) throw bad('Cada línea necesita un precio mayor a 0');
     const disc = Math.min(100, Math.max(0, num(it.discount_pct)));
     let line;
     if (it.product_id) {
       const p = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(it.product_id));
       if (!p) throw bad('Artículo inexistente');
-      line = { brand_id: p.brand_id, product_id: p.id, sku: p.sku, description: p.name };
+      if (p.brand_id !== brandId) throw bad(`${p.name} no es de ${brand.name}: cada venta se factura a nombre de una sola marca`);
+      line = { product_id: p.id, sku: p.sku, description: p.name + (p.variant ? ` ${p.variant}` : '') };
     } else {
-      const b = db.prepare('SELECT id FROM brands WHERE id = ?').get(Number(it.brand_id));
-      if (!b || !str(it.description)) throw bad('Las líneas sin artículo necesitan marca y descripción');
-      line = { brand_id: b.id, product_id: null, sku: str(it.sku), description: str(it.description) };
+      if (!str(it.description)) throw bad('Las líneas sin artículo necesitan descripción');
+      line = { product_id: null, sku: str(it.sku), description: str(it.description) };
     }
     return { ...line, qty, unit_price: unit, discount_pct: disc, total: round2(qty * unit * (1 - disc / 100)) };
   });
 
-  const period = date.slice(0, 7);
-  for (const bId of new Set(clean.map((c) => c.brand_id))) {
-    if (isPeriodClosed(bId, period)) throw bad('La liquidación de ese mes ya está cerrada para una de las marcas. Reabrila para cargar la venta.');
+  // comprobante y cliente
+  const kind = req.body.cfe_kind === 'factura' ? 'factura' : 'ticket';
+  const docType = DOC_TYPES.includes(req.body.customer_doc_type) ? req.body.customer_doc_type : null;
+  const doc = str(req.body.customer_doc);
+  const customerName = str(req.body.customer_name);
+  if (kind === 'factura' && (docType !== 'RUT' || !doc || !customerName)) throw bad('La e-Factura necesita el RUT y la razón social del cliente');
+
+  const electronic = brand.billing_mode !== 'manual';
+  if (electronic) credentialsFor(brand); // valida la configuración antes de guardar nada
+  const negatives = clean.filter((c) => c.qty < 0).length;
+  let refSaleId = null;
+  if (negatives && electronic) {
+    if (negatives !== clean.length) throw bad('Con factura electrónica la devolución va sola: registrá la devolución y la venta nueva por separado');
+    refSaleId = Number(req.body.ref_sale_id);
+    const orig = db.prepare('SELECT * FROM sales WHERE id = ?').get(refSaleId);
+    if (!orig || orig.brand_id !== brandId) throw bad('Indicá el número de la venta original (de esta marca) que se devuelve');
+    if (!orig.cfe_id) throw bad(`La venta #${refSaleId} no tiene comprobante electrónico emitido`);
   }
+  if (!electronic && !str(req.body.invoice_number)) throw bad(`${brand.name} factura a mano: anotá el número de la factura`);
+  if (isPeriodClosed(brandId, date.slice(0, 7))) throw bad(`La liquidación de ${brand.name} de ese mes ya está cerrada. Reabrila para cargar la venta.`);
 
   const id = tx(() => {
-    const r = db.prepare('INSERT INTO sales (date, ticket, payment_method, notes, created_by) VALUES (?, ?, ?, ?, ?)')
-      .run(date, str(req.body.ticket), str(req.body.payment_method), str(req.body.notes), req.user.id);
+    const r = db.prepare(`INSERT INTO sales (date, brand_id, payment_method, notes, created_by, cfe_kind, customer_doc_type, customer_doc, customer_name, customer_email,
+        invoice_status, invoice_number, ref_sale_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(date, brandId, payment, str(req.body.notes), req.user.id, kind, docType, doc, customerName, str(req.body.customer_email),
+        electronic ? 'pendiente' : 'manual', electronic ? null : str(req.body.invoice_number), refSaleId);
     const sid = Number(r.lastInsertRowid);
     const ins = db.prepare('INSERT INTO sale_items (sale_id, brand_id, product_id, sku, description, qty, unit_price, discount_pct, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
     for (const c of clean) {
-      ins.run(sid, c.brand_id, c.product_id, c.sku, c.description, c.qty, c.unit_price, c.discount_pct, c.total);
+      ins.run(sid, brandId, c.product_id, c.sku, c.description, c.qty, c.unit_price, c.discount_pct, c.total);
       // venta descuenta stock; devolución (cantidad negativa) lo repone
-      if (c.product_id) moveStock({ productId: c.product_id, brandId: c.brand_id, qty: -c.qty, reason: c.qty > 0 ? 'venta' : 'devolucion', refType: 'sale', refId: sid, userId: req.user.id });
+      if (c.product_id) moveStock({ productId: c.product_id, brandId, qty: -c.qty, reason: c.qty > 0 ? 'venta' : 'devolucion', refType: 'sale', refId: sid, userId: req.user.id });
     }
     return sid;
   });
-  res.json({ id });
+  // la venta queda guardada aunque Biller falle: la factura se puede reintentar
+  const sale = electronic ? await emitForSale(id) : db.prepare('SELECT * FROM sales WHERE id = ?').get(id);
+  res.json({ id, invoice_status: sale.invoice_status, invoice_number: sale.invoice_number, invoice_error: sale.invoice_error });
 });
 
-moneyRouter.post('/sales/:id/void', adminOnly, (req, res) => {
+moneyRouter.post('/sales/:id/invoice', adminOnly, async (req, res) => {
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(Number(req.params.id));
+  if (!sale) throw notFound('Venta inexistente');
+  if (sale.voided) throw bad('La venta está anulada');
+  if (sale.invoice_status === 'emitida') throw bad('Esta venta ya tiene comprobante');
+  const s = await emitForSale(sale.id);
+  res.json({ invoice_status: s.invoice_status, invoice_number: s.invoice_number, invoice_error: s.invoice_error });
+});
+
+moneyRouter.get('/sales/:id/pdf', async (req, res) => {
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(Number(req.params.id));
+  if (!sale) throw notFound('Venta inexistente');
+  if (req.user.role === 'marca' && sale.brand_id !== req.user.brand_id) throw forbidden();
+  const pdf = await pdfForSale(sale, req.query.which === 'void' ? 'void' : 'main');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="venta-${sale.id}.pdf"`);
+  res.send(pdf);
+});
+
+moneyRouter.post('/sales/:id/void', adminOnly, async (req, res) => {
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(Number(req.params.id));
   if (!sale) throw notFound('Venta inexistente');
   if (sale.voided) throw bad('La venta ya estaba anulada');
   const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(sale.id);
-  for (const bId of new Set(items.map((i) => i.brand_id))) {
-    if (isPeriodClosed(bId, sale.date.slice(0, 7))) throw bad('El mes de esta venta ya está liquidado. Reabrí la liquidación primero.');
-  }
+  if (isPeriodClosed(sale.brand_id, sale.date.slice(0, 7))) throw bad('El mes de esta venta ya está liquidado. Reabrí la liquidación primero.');
+  if (sale.invoice_status === 'emitida' && items.some((i) => i.qty < 0)) throw bad('Una devolución ya facturada no se anula: registrá una venta nueva');
+  // si salió factura electrónica, se anula con una nota de crédito total
+  const nc = sale.invoice_status === 'emitida' ? await emitVoidCreditNote(sale) : null;
   tx(() => {
     for (const it of items) {
       if (it.product_id) moveStock({ productId: it.product_id, brandId: it.brand_id, qty: it.qty, reason: 'anulacion', refType: 'sale', refId: sale.id, note: str(req.body.reason), userId: req.user.id });
     }
-    db.prepare('UPDATE sales SET voided = 1, notes = TRIM(COALESCE(notes, \'\') || ? ) WHERE id = ?').run(` [Anulada: ${str(req.body.reason) || 'sin motivo'}]`, sale.id);
+    db.prepare("UPDATE sales SET voided = 1, void_cfe_id = ?, void_cfe_number = ?, notes = TRIM(COALESCE(notes, '') || ?) WHERE id = ?")
+      .run(nc?.id ?? null, nc?.number ?? null, ` [Anulada: ${str(req.body.reason) || 'sin motivo'}]`, sale.id);
   });
-  res.json({ ok: true });
+  res.json({ ok: true, credit_note: nc?.number ?? null });
 });
 
 // ---------- liquidaciones (comisiones + cuotas) ----------
