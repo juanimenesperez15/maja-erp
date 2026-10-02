@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Plus, Receipt, Download, Trash2, Ban, Undo2, FileText, RotateCw, AlertCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Plus, Receipt, Download, Trash2, Ban, Undo2, FileText, RotateCw, AlertCircle, CheckCircle2, Wrench } from 'lucide-react';
 import { api, getToken } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, Stat, useToast, cx } from '../components/ui.jsx';
 import ProductPicker from '../components/ProductPicker.jsx';
-import { currentPeriod, downloadCSV, fmtDate, fmtInt, fmtMoney, parseNum, todayISO } from '../lib/format.js';
+import { currentPeriod, downloadCSV, fmtDate, fmtDateTime, fmtInt, fmtMoney, parseNum, todayISO } from '../lib/format.js';
 
 const PAYMENT_METHODS = ['Efectivo', 'Débito', 'Crédito', 'Transferencia', 'Mercado Pago', 'Otro'];
 const BILLING_HINT = {
@@ -44,6 +45,8 @@ export default function Sales() {
   const { isAdmin, isOwner, brandId } = useSession();
   const [range, setRange] = useState({ from: `${currentPeriod()}-01`, to: todayISO() });
   const [showVoided, setShowVoided] = useState(false);
+  const [onlyPosErrors, setOnlyPosErrors] = useState(false);
+  const [evidence, setEvidence] = useState(null);
   const { data, error, loading, reload } = useApi('/sales', { brand_id: brandId, from: range.from, to: range.to, include_voided: showVoided ? '1' : '' });
   const [creating, setCreating] = useState(false);
   const toast = useToast();
@@ -62,6 +65,10 @@ export default function Sales() {
     rows.forEach((r) => { if (!m.has(r.sale_id)) m.set(r.sale_id, { ...r, items: [] }); m.get(r.sale_id).items.push(r); });
     return [...m.values()];
   }, [rows]);
+  // venta cuyo POS anotado no coincide con la terminal donde Handy registró el cobro
+  const posError = (g) => !g.voided && g.handy_pos && g.pos && g.handy_pos !== g.pos;
+  const posErrors = groups.filter(posError).length;
+  const shownGroups = onlyPosErrors ? groups.filter(posError) : groups;
   const pendingInvoices = groups.filter((g) => !g.voided && (g.invoice_status === 'error' || g.invoice_status === 'pendiente')).length;
 
   const voidSale = async (g) => {
@@ -100,6 +107,7 @@ export default function Sales() {
         <Field label="Desde"><Input type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>
         <Field label="Hasta"><Input type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
         {isAdmin && <label className="mb-2 flex items-center gap-2 text-[13px] text-ink2"><input type="checkbox" checked={showVoided} onChange={(e) => setShowVoided(e.target.checked)} className="h-4 w-4 accent-[#1d1b18]" />Mostrar anuladas</label>}
+        {posErrors > 0 && <label className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-bad"><input type="checkbox" checked={onlyPosErrors} onChange={(e) => setOnlyPosErrors(e.target.checked)} className="h-4 w-4 accent-[#a2342a]" />Ver solo errores de POS ({posErrors})</label>}
         {isAdmin && pendingInvoices > 0 && <div className="mb-1.5 ml-auto"><Badge tone="bad"><AlertCircle size={11} />{pendingInvoices} {pendingInvoices === 1 ? 'venta sin facturar' : 'ventas sin facturar'}</Badge></div>}
       </div>
 
@@ -121,7 +129,7 @@ export default function Sales() {
             <table className="tbl">
               <thead><tr><th>Fecha</th><th>Venta</th>{!brandId && <th>A nombre de</th>}<th>Artículos</th><th>Pago</th><th>Comprobante</th><th className="text-right">Total</th>{isAdmin && <th />}</tr></thead>
               <tbody>
-                {groups.map((g) => (
+                {shownGroups.map((g) => (
                   <tr key={g.sale_id} className={g.voided ? 'opacity-50' : ''}>
                     <td className="whitespace-nowrap align-top">{fmtDate(g.date)}</td>
                     <td className="whitespace-nowrap align-top"><span className="num text-muted">#{g.sale_id}</span>{g.voided ? <div className="mt-1"><Badge tone="bad">Anulada</Badge></div> : null}{g.ref_sale_id && <div className="text-[12px] text-muted">devuelve #{g.ref_sale_id}</div>}</td>
@@ -137,7 +145,9 @@ export default function Sales() {
                         ))}
                       </ul>
                     </td>
-                    <td className="whitespace-nowrap align-top text-ink2">{g.payment_method || '—'}{g.payment_method === 'Crédito' && g.installments > 1 && ` ${g.installments} cuotas`}{g.pos && <span className="block text-[12px] text-muted">{g.pos === 'maja' ? 'POS de MAJA' : 'POS de la marca'}</span>}{g.handy_pos && g.handy_pos !== g.pos && <span className="mt-1 block"><Badge tone="bad">Handy: {g.handy_pos === 'maja' ? 'se cobró en el POS de MAJA' : 'se cobró en el POS de la marca'}</Badge></span>}</td>
+                    <td className="whitespace-nowrap align-top text-ink2">{g.payment_method || '—'}{g.payment_method === 'Crédito' && g.installments > 1 && ` ${g.installments} cuotas`}{g.pos && <span className="block text-[12px] text-muted">{g.pos === 'maja' ? 'POS de MAJA' : 'POS de la marca'}</span>}{posError(g) && <span className="mt-1 block">{isOwner
+                      ? <button onClick={() => setEvidence(g.handy_txn_id)} title="Ver cómo se detectó" className="rounded-full transition hover:ring-2 hover:ring-bad/30"><Badge tone="bad">Handy: {g.handy_pos === 'maja' ? 'se cobró en el POS de MAJA' : 'se cobró en el POS de la marca'} ›</Badge></button>
+                      : <Badge tone="bad">Handy: {g.handy_pos === 'maja' ? 'se cobró en el POS de MAJA' : 'se cobró en el POS de la marca'}</Badge>}</span>}</td>
                     <td className="align-top"><InvoiceCell g={g} isAdmin={isAdmin} onRetry={() => retry(g)} toast={toast} /></td>
                     <td className="num whitespace-nowrap text-right align-top font-semibold">{fmtMoney(g.items.reduce((a, i) => a + i.total, 0))}</td>
                     {isAdmin && <td className="text-right align-top">{!g.voided && isOwner && <button title="Anular venta" onClick={() => voidSale(g)} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad"><Ban size={15} /></button>}</td>}
@@ -149,8 +159,81 @@ export default function Sales() {
         )}
       </Card>
 
+      {evidence && <EvidenceModal txnId={evidence} onClose={() => setEvidence(null)} onFixed={() => { setEvidence(null); reload(); }} />}
       {creating && <NewSaleModal initialBrand={brandId} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />}
     </>
+  );
+}
+
+/** La prueba de un error de POS: lo que se anotó en la venta al lado de lo que dice el reporte de Handy. */
+function EvidenceModal({ txnId, onClose, onFixed }) {
+  const toast = useToast();
+  const { data, loading } = useApi(`/cards/txns/${txnId}`);
+  const [busy, setBusy] = useState(false);
+  const t = data?.txn;
+  const s = data?.sale;
+  const posName = (pos) => (pos === 'maja' ? 'POS de MAJA' : pos === 'marca' ? `POS de ${s?.brand_name ?? 'la marca'}` : 'sin POS');
+  const handyPos = data?.terminal?.owner === 'maja' ? 'POS de MAJA' : data?.terminal?.owner === 'marca' ? `POS de ${data.terminal.brand_name}` : 'POS sin asignar';
+  const wrong = data && ['pos_equivocado', 'medio_equivocado', 'tipo_equivocado'].includes(data.status);
+
+  const fix = async () => {
+    setBusy(true);
+    try {
+      await api(`/cards/txns/${txnId}/fix`, { method: 'POST' });
+      toast(`Venta #${s.id} corregida: ${handyPos}`);
+      onFixed();
+    } catch (e) { toast(e.message, 'bad'); } finally { setBusy(false); }
+  };
+
+  const Row = ({ label, a, b, bad }) => (
+    <tr>
+      <td className="text-[12px] font-semibold text-muted">{label}</td>
+      <td className="text-[13px]">{a}</td>
+      <td className={cx('text-[13px]', bad && 'font-semibold text-bad')}>{b}</td>
+    </tr>
+  );
+
+  return (
+    <Modal open wide title="Cómo se detectó" onClose={onClose}
+      footer={data && <>
+        <Link to="/tarjetas" className="mr-auto self-center text-[13px] text-ink2 underline decoration-line underline-offset-2 hover:text-ink">Ver la conciliación completa</Link>
+        <Button variant="ghost" onClick={onClose}>Cerrar</Button>
+        {wrong && <Button variant="accent" onClick={fix} loading={busy}><Wrench size={15} />Corregir la venta</Button>}
+      </>}>
+      {loading || !data ? <Loading /> : (
+        <div className="space-y-5">
+          <p className="text-[13px] text-ink2">
+            En el reporte de Handy del <b>{handyPos}</b> hay un cobro que coincide con esta venta. La venta dice que se pasó en el <b>{posName(s.pos)}</b>.
+            {data.terminal?.owner === 'maja' && s.pos === 'marca' && ' Es decir: la vendedora anotó el POS de la marca, pero la tarjeta se pasó en el de MAJA.'}
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="tbl">
+              <thead><tr><th className="w-36" /><th>Lo que se anotó en la venta #{s.id}</th><th>Lo que dice Handy</th></tr></thead>
+              <tbody>
+                <Row label="POS" a={posName(s.pos)} b={`${handyPos} · terminal ${t.terminal}${data.terminal?.sucursal ? ` (${data.terminal.sucursal})` : ''}`} bad={data.status === 'pos_equivocado'} />
+                <Row label="Medio" a={`${s.payment_method}${s.payment_method === 'Crédito' && s.installments > 1 ? ` ${s.installments} cuotas` : ''}`} b={t.movement} bad={['medio_equivocado', 'tipo_equivocado'].includes(data.status)} />
+                <Row label="Importe" a={fmtMoney(s.total)} b={fmtMoney(t.amount)} />
+                <Row label="Fecha y hora" a={`${fmtDate(s.date)} · cargada ${fmtDateTime(s.created_at)}`} b={fmtDateTime(`${t.txn_at.replace(' ', 'T')}:00-03:00`)} />
+                <Row label="N° de factura" a={s.invoice_number || '—'} b={t.invoice_number || '—'} />
+                <Row label="Tarjeta" a="—" b={`${t.network ?? ''} ···${String(t.card || '').slice(-4)}${t.bank ? ` · ${t.bank}` : ''} · autorización ${t.authorization ?? '—'}`} />
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div className="eyebrow mb-2">Por qué se unieron {data.match_kind === 'manual' ? '(se unió a mano)' : '(automático)'}</div>
+            <ul className="space-y-1.5">
+              {data.reasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-2 text-[13px]">
+                  {r.ok ? <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-ok" /> : <AlertCircle size={15} className="mt-0.5 shrink-0 text-muted" />}
+                  <span className={r.ok ? '' : 'text-muted'}>{r.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {wrong && <p className="text-[12px] text-muted">"Corregir la venta" la deja como dice Handy. Lo cobrado en el POS de MAJA ya se descuenta de lo que la marca tiene que pagar, se corrija o no.</p>}
+        </div>
+      )}
+    </Modal>
   );
 }
 

@@ -24,7 +24,8 @@ moneyRouter.get('/sales', (req, res) => {
     SELECT si.*, s.date, s.payment_method, s.pos, s.installments, s.notes, s.voided, s.cfe_kind, s.customer_doc_type, s.customer_doc, s.customer_name,
       s.invoice_status, s.invoice_number, s.invoice_error, s.cfe_id, s.cfe_mode, s.ref_sale_id, s.void_cfe_id, s.void_cfe_number,
       b.name AS brand_name, p.variant,
-      (SELECT pt.owner FROM card_txns c JOIN pos_terminals pt ON pt.terminal = c.terminal WHERE c.sale_id = s.id AND c.ignored = 0 LIMIT 1) AS handy_pos
+      (SELECT pt.owner FROM card_txns c JOIN pos_terminals pt ON pt.terminal = c.terminal WHERE c.sale_id = s.id AND c.ignored = 0 LIMIT 1) AS handy_pos,
+      (SELECT c.id FROM card_txns c WHERE c.sale_id = s.id AND c.ignored = 0 LIMIT 1) AS handy_txn_id
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN brands b ON b.id = si.brand_id
     LEFT JOIN products p ON p.id = si.product_id
     WHERE ${where.join(' AND ')} ORDER BY s.date DESC, s.id DESC, si.id`).all(...args);

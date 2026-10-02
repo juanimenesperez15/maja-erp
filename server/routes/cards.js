@@ -279,6 +279,33 @@ cardsRouter.get('/cards/txns', (req, res) => {
   res.json({ from, to, txns, unpaid, by_brand: Object.values(byBrand).map((b) => ({ ...b, maja: round2(b.maja), own: round2(b.own), other: round2(b.other) })), imports });
 });
 
+// la prueba de un cruce: el cobro de Handy al lado de la venta y por qué se unieron
+cardsRouter.get('/cards/txns/:id', (req, res) => {
+  const t = db.prepare('SELECT * FROM card_txns WHERE id = ?').get(Number(req.params.id));
+  if (!t) throw notFound('Cobro inexistente');
+  const term = db.prepare('SELECT pt.*, b.name AS brand_name FROM pos_terminals pt LEFT JOIN brands b ON b.id = pt.brand_id WHERE pt.terminal = ?').get(t.terminal);
+  const sale = t.sale_id ? db.prepare('SELECT s.*, b.name AS brand_name FROM sales s LEFT JOIN brands b ON b.id = s.brand_id WHERE s.id = ?').get(t.sale_id) : null;
+  const total = sale ? round2(saleTotals()[sale.id] ?? 0) : null;
+  const reasons = [];
+  if (sale) {
+    const $ = (v) => `$ ${Number(v).toLocaleString('es-UY', { maximumFractionDigits: 2 })}`;
+    reasons.push({ ok: Math.abs(total - t.amount) < 0.5, text: Math.abs(total - t.amount) < 0.5 ? `Mismo importe: ${$(t.amount)}` : `Importe distinto: ${$(t.amount)} en Handy y ${$(total)} en la venta` });
+    reasons.push({ ok: sale.date === t.date, text: sale.date === t.date ? 'Mismo día' : `Días distintos (${t.date} en Handy, ${sale.date} en la venta)` });
+    const inv = digits(t.invoice_number);
+    const saleInv = digits(sale.invoice_number) || digits(sale.cfe_numero);
+    if (inv) reasons.push({ ok: !!saleInv && (saleInv === inv || saleInv.endsWith(inv)), text: `N° de factura: ${t.invoice_number} en Handy, ${sale.invoice_number || sale.cfe_numero || 'sin número'} en la venta` });
+    const mins = Math.round(minutesBetween(t.txn_at, sale.created_at));
+    reasons.push({ ok: mins <= 30, text: mins <= 180 ? `La venta se cargó ${mins} min ${Date.parse(`${sale.created_at.replace(' ', 'T')}Z`) >= Date.parse(`${t.txn_at.replace(' ', 'T')}:00-03:00`) ? 'después' : 'antes'} del cobro` : 'La venta se cargó en otro momento del día (no se pudo comparar la hora)' });
+    reasons.push({ ok: (isDebit(t.movement) && sale.payment_method === 'Débito') || (isCredit(t.movement) && sale.payment_method === 'Crédito'), text: `Medio: ${t.movement} en Handy, ${sale.payment_method} en la venta` });
+  }
+  res.json({
+    txn: t, status: statusOf(t, sale, term),
+    terminal: term ? { terminal: term.terminal, sucursal: term.sucursal, owner: term.owner, brand_name: term.brand_name } : null,
+    sale: sale && { id: sale.id, date: sale.date, created_at: sale.created_at, brand_id: sale.brand_id, brand_name: sale.brand_name, payment_method: sale.payment_method, pos: sale.pos, installments: sale.installments, invoice_number: sale.invoice_number || sale.cfe_numero, total },
+    match_kind: t.match_kind, reasons,
+  });
+});
+
 cardsRouter.post('/cards/reconcile', (_req, res) => res.json({ matched: autoMatch() }));
 
 // unir a mano con una venta, desunir o descartar un cobro
