@@ -12,6 +12,7 @@ import Brands from './pages/Brands.jsx';
 import UsersPage from './pages/Users.jsx';
 import Account from './pages/Account.jsx';
 import Goals from './pages/Goals.jsx';
+import Cards from './pages/Cards.jsx';
 
 export default function App() {
   const { loading, user, isOwner, isSeller } = useSession();
@@ -28,6 +29,7 @@ export default function App() {
         {!isSeller && <Route path="liquidaciones" element={<Settlements />} />}
         <Route path="cuenta" element={<Account />} />
         {isOwner && <Route path="objetivos" element={<Goals />} />}
+        {isOwner && <Route path="tarjetas" element={<Cards />} />}
         {isOwner && <Route path="marcas" element={<Brands />} />}
         {isOwner && <Route path="usuarios" element={<UsersPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />

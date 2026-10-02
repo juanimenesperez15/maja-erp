@@ -24,6 +24,8 @@ Si Biller falla, la venta queda guardada como "sin facturar" y se reintenta desd
 
 Pick ups: la marca pide, MAJA arma artículo por artículo (puede quedar incompleto), lo marca listo y registra quién lo retiró. El stock baja por lo armado, no por lo pedido.
 
+**Conciliación de tarjetas** (dueña): cada venta con débito o crédito guarda en qué POS se pasó (el de MAJA o el de la marca). Se sube el reporte de Actividad de Handy de cada POS (Excel); cada cobro se cruza con las ventas por importe, fecha, hora y n° de factura, y quedan marcadas las ventas anotadas en el POS equivocado, con el medio equivocado, cobradas en el POS de otra marca, cobros sin venta y ventas con tarjeta sin cobro. "Corregir venta" la deja como dice Handy. La liquidación de cada marca muestra cuánto de sus ventas se cobró en el POS de MAJA.
+
 El stock se mueve solo: suma al recibir un ingreso, baja con cada venta, pick up entregado o retiro, y vuelve con una devolución o una venta anulada. Cada movimiento queda en el historial del artículo.
 
 Liquidación del mes de una marca = comisión % sobre lo vendido + cuota mensual (+ IVA 22 % si la marca está marcada así). Mientras el mes está abierto se recalcula; al cerrarlo se congela.

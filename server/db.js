@@ -196,6 +196,47 @@ if (!usersSql.includes('vendedora')) {
   db.exec('PRAGMA foreign_keys = ON');
 }
 
+// conciliación de tarjetas: en qué POS se pasó cada venta con tarjeta (el de MAJA o el de la marca)
+ensureColumn('sales', 'pos', 'TEXT'); // maja | marca | NULL (no fue con tarjeta)
+ensureColumn('sales', 'installments', 'INTEGER');
+db.exec(`
+CREATE TABLE IF NOT EXISTS pos_terminals (
+  terminal TEXT PRIMARY KEY,
+  sucursal TEXT,
+  owner TEXT,                          -- maja | marca | NULL (sin asignar)
+  brand_id INTEGER REFERENCES brands(id),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS card_imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  filename TEXT, rows INTEGER, new_rows INTEGER, date_from TEXT, date_to TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS card_txns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  import_id INTEGER REFERENCES card_imports(id),
+  terminal TEXT NOT NULL,
+  sucursal TEXT,
+  txn_at TEXT NOT NULL,                -- hora de Uruguay, AAAA-MM-DD HH:MM
+  date TEXT NOT NULL,
+  medio TEXT, card TEXT, foreign_card INTEGER, network TEXT, bank TEXT,
+  movement TEXT,                       -- Débito, Crédito 3 cuotas, Devolución…
+  installments INTEGER,
+  verification TEXT, ticket TEXT, authorization TEXT, invoice_number TEXT,
+  currency TEXT NOT NULL DEFAULT 'UYU',
+  amount REAL NOT NULL,
+  iva_refund REAL, fees REAL, net_amount REAL, payout_date TEXT,
+  sale_id INTEGER REFERENCES sales(id),
+  match_kind TEXT,                     -- auto | manual
+  ignored INTEGER NOT NULL DEFAULT 0,
+  note TEXT,
+  UNIQUE (terminal, verification, txn_at, amount)
+);
+CREATE INDEX IF NOT EXISTS ix_card_txns_date ON card_txns(date);
+CREATE INDEX IF NOT EXISTS ix_card_txns_sale ON card_txns(sale_id);
+`);
+
 // objetivos de venta mensuales por marca
 db.exec(`CREATE TABLE IF NOT EXISTS sales_goals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

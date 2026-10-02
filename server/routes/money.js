@@ -4,6 +4,7 @@ import {
   auth, adminOnly, staffOnly, notSeller, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num, round2, today, currentPeriod,
   shiftPeriod, isPeriod, settlementFor, brandPeriods, isPeriodClosed,
 } from '../lib.js';
+import { cardCollectedByMaja } from './cards.js';
 import { PAYMENT_METHODS, credentialsFor, emitForSale, emitVoidCreditNote, pdfForSale } from '../billing.js';
 
 export const moneyRouter = Router();
@@ -21,7 +22,7 @@ moneyRouter.get('/sales', (req, res) => {
   if (brandId) { where.push('si.brand_id = ?'); args.push(brandId); }
   if (req.user.role === 'marca' || req.query.include_voided !== '1') where.push('s.voided = 0');
   const rows = db.prepare(`
-    SELECT si.*, s.date, s.payment_method, s.notes, s.voided, s.cfe_kind, s.customer_doc_type, s.customer_doc, s.customer_name,
+    SELECT si.*, s.date, s.payment_method, s.pos, s.installments, s.notes, s.voided, s.cfe_kind, s.customer_doc_type, s.customer_doc, s.customer_name,
       s.invoice_status, s.invoice_number, s.invoice_error, s.cfe_id, s.cfe_mode, s.ref_sale_id, s.void_cfe_id, s.void_cfe_number,
       b.name AS brand_name, p.variant
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN brands b ON b.id = si.brand_id
@@ -43,6 +44,11 @@ moneyRouter.post('/sales', staffOnly, async (req, res) => {
   if (!PAYMENT_METHODS.includes(payment)) throw bad('Elegí el medio de pago');
   const items = Array.isArray(req.body.items) ? req.body.items : [];
   if (!items.length) throw bad('La venta no tiene artículos');
+  // con tarjeta: en qué POS se pasó (cada marca tiene el suyo y MAJA el propio)
+  const card = ['Débito', 'Crédito'].includes(payment);
+  const pos = card ? (['maja', 'marca'].includes(req.body.pos) ? req.body.pos : null) : null;
+  if (card && !pos) throw bad('Indicá en qué POS se pasó la tarjeta: el de MAJA o el de la marca');
+  const installments = payment === 'Crédito' ? Math.max(1, Math.min(36, Math.trunc(num(req.body.installments, 1)))) : null;
 
   const clean = items.map((it) => {
     const qty = Math.trunc(num(it.qty));
@@ -85,9 +91,9 @@ moneyRouter.post('/sales', staffOnly, async (req, res) => {
   if (isPeriodClosed(brandId, date.slice(0, 7))) throw bad(`La liquidación de ${brand.name} de ese mes ya está cerrada. Reabrila para cargar la venta.`);
 
   const id = tx(() => {
-    const r = db.prepare(`INSERT INTO sales (date, brand_id, payment_method, notes, created_by, cfe_kind, customer_doc_type, customer_doc, customer_name, customer_email,
-        invoice_status, invoice_number, ref_sale_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(date, brandId, payment, str(req.body.notes), req.user.id, kind, docType, doc, customerName, str(req.body.customer_email),
+    const r = db.prepare(`INSERT INTO sales (date, brand_id, payment_method, pos, installments, notes, created_by, cfe_kind, customer_doc_type, customer_doc, customer_name, customer_email,
+        invoice_status, invoice_number, ref_sale_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(date, brandId, payment, pos, installments, str(req.body.notes), req.user.id, kind, docType, doc, customerName, str(req.body.customer_email),
         electronic ? 'pendiente' : 'manual', electronic ? null : str(req.body.invoice_number), refSaleId);
     const sid = Number(r.lastInsertRowid);
     const ins = db.prepare('INSERT INTO sale_items (sale_id, brand_id, product_id, sku, description, qty, unit_price, discount_pct, total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
@@ -167,7 +173,7 @@ moneyRouter.get('/settlements/detail', notSeller, (req, res) => {
     FROM sale_items si JOIN sales s ON s.id = si.sale_id
     WHERE si.brand_id = ? AND s.voided = 0 AND substr(s.date, 1, 7) = ?
     GROUP BY si.sku, si.description ORDER BY total DESC`).all(brandId, period);
-  res.json({ settlement, payments, products });
+  res.json({ settlement, payments, products, card_maja: cardCollectedByMaja(brandId, period) });
 });
 
 moneyRouter.post('/settlements/close', adminOnly, (req, res) => {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Boxes, Truck, ShoppingBag, Receipt, Landmark, Store, Users, LogOut, Menu, X, KeyRound, Target } from 'lucide-react';
+import { LayoutDashboard, Boxes, Truck, ShoppingBag, Receipt, Landmark, Store, Users, LogOut, Menu, X, KeyRound, Target, CreditCard } from 'lucide-react';
 import { useSession } from '../lib/session.jsx';
 import { cx } from './ui.jsx';
 
@@ -19,6 +19,7 @@ export default function Layout() {
   ];
   const adminNav = [
     { to: '/objetivos', label: 'Objetivos', icon: Target },
+    { to: '/tarjetas', label: 'Conciliación tarjetas', icon: CreditCard },
     { to: '/marcas', label: 'Marcas', icon: Store },
     { to: '/usuarios', label: 'Usuarios', icon: Users },
   ];
@@ -67,7 +68,7 @@ export default function Layout() {
           <div className="font-display text-[22px] lg:hidden">MAJA</div>
           <div className="ml-auto flex items-center gap-2">
             {isAdmin ? (
-              !['/marcas', '/usuarios', '/cuenta', '/objetivos'].includes(loc.pathname) && (
+              !['/marcas', '/usuarios', '/cuenta', '/objetivos', '/tarjetas'].includes(loc.pathname) && (
                 <label className="flex items-center gap-2">
                   <span className="hidden text-[12px] text-muted sm:inline">Viendo</span>
                   <select className="field h-9 w-auto min-w-[190px] py-1.5" value={brandId} onChange={(e) => setBrandFilter(e.target.value)}>

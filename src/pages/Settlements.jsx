@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Landmark, Lock, LockOpen, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CreditCard, Download, Landmark, Lock, LockOpen, Plus, Trash2 } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, Stat, useToast, SETTLEMENT_BADGE } from '../components/ui.jsx';
@@ -178,6 +178,14 @@ function DetailModal({ brand_id, period, isAdmin, onClose, onChanged }) {
             </div>
           </div>
 
+          {data.card_maja?.count > 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-line bg-sunk/60 px-4 py-3 text-[13px]">
+              <CreditCard size={16} className="mt-0.5 shrink-0 text-muted" />
+              <span>
+                <b className="num">{fmtMoney(data.card_maja.total, true)}</b> de ventas de {s.brand_name} se cobraron con tarjeta en el <b>POS de MAJA</b> ({data.card_maja.count} {data.card_maja.count === 1 ? 'cobro' : 'cobros'}, según los reportes de Handy). Esa plata entró a MAJA, no a la marca.
+              </span>
+            </div>
+          )}
           <div>
             <div className="eyebrow mb-2">Qué se vendió</div>
             {!data.products.length ? <div className="text-[13px] text-muted">Sin ventas en el mes.</div> : (

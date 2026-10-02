@@ -137,7 +137,7 @@ export default function Sales() {
                         ))}
                       </ul>
                     </td>
-                    <td className="whitespace-nowrap align-top text-ink2">{g.payment_method || '—'}</td>
+                    <td className="whitespace-nowrap align-top text-ink2">{g.payment_method || '—'}{g.payment_method === 'Crédito' && g.installments > 1 && ` ${g.installments} cuotas`}{g.pos && <span className="block text-[12px] text-muted">{g.pos === 'maja' ? 'POS de MAJA' : 'POS de la marca'}</span>}</td>
                     <td className="align-top"><InvoiceCell g={g} isAdmin={isAdmin} onRetry={() => retry(g)} toast={toast} /></td>
                     <td className="num whitespace-nowrap text-right align-top font-semibold">{fmtMoney(g.items.reduce((a, i) => a + i.total, 0))}</td>
                     {isAdmin && <td className="text-right align-top">{!g.voided && isOwner && <button title="Anular venta" onClick={() => voidSale(g)} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad"><Ban size={15} /></button>}</td>}
@@ -160,7 +160,7 @@ function NewSaleModal({ initialBrand, onClose, onSaved }) {
   const active = brands.filter((b) => b.active);
   const [brandId, setBrandId] = useState(initialBrand || (active.length === 1 ? String(active[0].id) : ''));
   const brand = active.find((b) => String(b.id) === String(brandId));
-  const [head, setHead] = useState({ date: todayISO(), payment_method: '', cfe_kind: 'ticket', customer_doc_type: 'CI', customer_doc: '', customer_name: '', customer_email: '', invoice_number: '', ref_sale_id: '', notes: '' });
+  const [head, setHead] = useState({ date: todayISO(), payment_method: '', pos: '', installments: '1', cfe_kind: 'ticket', customer_doc_type: 'CI', customer_doc: '', customer_name: '', customer_email: '', invoice_number: '', ref_sale_id: '', notes: '' });
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -194,7 +194,7 @@ function NewSaleModal({ initialBrand, onClose, onSaved }) {
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
 
-  const ready = brand && head.payment_method && items.length;
+  const ready = brand && head.payment_method && items.length && (!['Débito', 'Crédito'].includes(head.payment_method) || head.pos);
   return (
     <Modal open wide title="Registrar venta" onClose={onClose}
       footer={<div className="flex w-full items-center justify-between">
@@ -224,6 +224,28 @@ function NewSaleModal({ initialBrand, onClose, onSaved }) {
               </button>
             ))}
           </div>
+          {['Débito', 'Crédito'].includes(head.payment_method) && brand && (
+            <div className="fade mt-3 flex flex-wrap items-end gap-4 rounded-lg bg-sunk/70 px-3 py-3">
+              <div>
+                <div className="mb-1.5 text-[12px] font-semibold text-ink2">¿En qué POS se pasó la tarjeta?</div>
+                <div className="inline-flex rounded-md border border-line bg-card p-0.5">
+                  {[['maja', 'POS de MAJA'], ['marca', `POS de ${brand.name}`]].map(([v, l]) => (
+                    <button key={v} type="button" onClick={() => setHead({ ...head, pos: v })}
+                      className={cx('rounded px-3 py-1.5 text-[13px] font-medium', head.pos === v ? 'bg-ink text-paper' : 'text-ink2')}>{l}</button>
+                  ))}
+                </div>
+              </div>
+              {head.payment_method === 'Crédito' && (
+                <label className="block">
+                  <span className="mb-1.5 block text-[12px] font-semibold text-ink2">Cuotas</span>
+                  <select className="field h-9 w-24 py-1" value={head.installments} onChange={setH('installments')}>
+                    {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((c) => <option key={c} value={c}>{c === 1 ? 'Contado' : c}</option>)}
+                  </select>
+                </label>
+              )}
+              <p className="basis-full text-[12px] text-muted">Mirá el POS donde salió el comprobante: después se cruza con el reporte de Handy.</p>
+            </div>
+          )}
         </div>
 
         {/* 3. artículos */}
