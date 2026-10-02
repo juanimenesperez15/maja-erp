@@ -156,5 +156,5 @@ export const STATUS_TONE = { pendiente: 'warn', listo: 'accent', completado: 'ok
 export const TYPE_LABEL = { ingreso: 'Ingreso de mercadería', pickup: 'Pick up', retiro: 'Retiro de mercadería' };
 
 export const SETTLEMENT_BADGE = {
-  pagada: ['ok', 'Pagada'], parcial: ['warn', 'Pago parcial'], pendiente: ['bad', 'Pendiente'], sin_cargo: ['neutral', 'Sin cargo'],
+  pagada: ['ok', 'Pagada'], parcial: ['warn', 'Pago parcial'], pendiente: ['bad', 'Pendiente'], sin_cargo: ['neutral', 'Sin cargo'], a_favor_marca: ['accent', 'A favor de la marca'],
 };

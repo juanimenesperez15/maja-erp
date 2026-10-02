@@ -97,7 +97,7 @@ export default function StoreOverview({ period, dash }) {
           <Stat2 label="Ticket promedio" value={fmtMoney(k.avg_ticket)} sub={`${fmtInt(k.tickets)} ventas · ${fmtInt(k.units)} unid.`} />
           {isOwner ? <>
             <Stat2 label="Comisión + cuota" value={fmtMoney(k.to_pay)} sub={`Comisión ${fmtMoney(k.commission)} · cuota ${fmtMoney(k.fees)}`} />
-            <Stat2 label="Saldo a cobrar" value={fmtMoney(k.owed)} accent={k.owed > 0} sub={<Link to="/liquidaciones" className="underline decoration-line underline-offset-2 hover:text-ink">Liquidaciones</Link>} />
+            <Stat2 label="Saldo a cobrar" value={fmtMoney(k.owed)} accent={k.owed > 0} sub={<>{k.in_favor > 0 && <span className="block">MAJA debe {fmtMoney(k.in_favor)} a marcas</span>}<Link to="/liquidaciones" className="underline decoration-line underline-offset-2 hover:text-ink">Liquidaciones</Link></>} />
           </> : <>
             <Stat2 label="Pick ups abiertos" value={fmtInt(dash.open_orders.pickup || 0)} sub={<Link to="/pickups" className="underline decoration-line underline-offset-2 hover:text-ink">Ver pick ups</Link>} />
             <Stat2 label="Ingresos por recibir" value={fmtInt(dash.open_orders.ingreso || 0)} sub={<Link to="/pedidos" className="underline decoration-line underline-offset-2 hover:text-ink">Ver pedidos</Link>} />

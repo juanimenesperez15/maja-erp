@@ -111,23 +111,47 @@ export function brandSalesFor(brandId, period) {
     WHERE si.brand_id = ? AND s.voided = 0 AND substr(s.date, 1, 7) = ?`).get(brandId, period);
 }
 
+/**
+ * Cobros con tarjeta de ventas de la marca que entraron por el POS de MAJA (según los reportes de Handy
+ * ya conciliados). Es plata de la marca que quedó en MAJA: se descuenta de lo que la marca tiene que pagar.
+ * Se toma lo que Handy acreditó (importe menos su comisión): es lo que efectivamente entró.
+ */
+export function majaPosCollections(brandId, period) {
+  return db.prepare(`SELECT c.id, c.txn_at, c.amount, c.net_amount, c.fees, c.iva_refund, c.movement, c.network, c.card, c.terminal,
+      s.id AS sale_id, s.date AS sale_date, s.pos AS registered_pos, s.payment_method
+    FROM card_txns c JOIN pos_terminals pt ON pt.terminal = c.terminal JOIN sales s ON s.id = c.sale_id
+    WHERE pt.owner = 'maja' AND c.ignored = 0 AND s.voided = 0 AND s.brand_id = ? AND substr(s.date, 1, 7) = ?
+    ORDER BY c.txn_at`).all(brandId, period);
+}
+export const creditOf = (c) => round2(c.net_amount || c.amount);
+
 /** Liquidación de una marca para un mes: congelada si el mes se cerró, calculada en vivo si no. */
 export function settlementFor(brand, period) {
   const closed = db.prepare('SELECT * FROM settlements WHERE brand_id = ? AND period = ?').get(brand.id, period);
+  const liveCredit = round2(majaPosCollections(brand.id, period).reduce((a, c) => a + creditOf(c), 0));
   let base;
   if (closed) {
-    base = { sales_total: closed.sales_total, units: closed.units, commission_pct: closed.commission_pct, commission: closed.commission, fee: closed.fee, iva: closed.iva, total: closed.total, closed: true, closed_at: closed.closed_at };
+    // en los meses viejos 'total' era solo comisión + cuota + IVA
+    const charges = round2(closed.commission + closed.fee + closed.iva);
+    base = { sales_total: closed.sales_total, units: closed.units, commission_pct: closed.commission_pct, commission: closed.commission, fee: closed.fee, iva: closed.iva, charges, card_credit: closed.card_credit || 0, closed: true, closed_at: closed.closed_at };
   } else {
     const { sales_total, units } = brandSalesFor(brand.id, period);
     const commission = round2(sales_total * (brand.commission_pct || 0) / 100);
     const fee = round2(brand.monthly_fee || 0);
     const iva = brand.plus_iva ? round2((commission + fee) * IVA_RATE) : 0;
-    base = { sales_total: round2(sales_total), units, commission_pct: brand.commission_pct || 0, commission, fee, iva, total: round2(commission + fee + iva), closed: false, closed_at: null };
+    base = { sales_total: round2(sales_total), units, commission_pct: brand.commission_pct || 0, commission, fee, iva, charges: round2(commission + fee + iva), card_credit: liveCredit, closed: false, closed_at: null };
   }
+  // total = lo que la marca le debe a MAJA en el mes; negativo = MAJA le debe a la marca
+  const total = round2(base.charges - base.card_credit);
   const paid = round2(db.prepare('SELECT COALESCE(SUM(amount), 0) AS p FROM payments WHERE brand_id = ? AND period = ?').get(brand.id, period).p);
-  const balance = round2(base.total - paid);
-  const status = base.total <= 0 && paid <= 0 ? 'sin_cargo' : balance <= 0.009 ? 'pagada' : paid > 0 ? 'parcial' : 'pendiente';
-  return { brand_id: brand.id, brand_name: brand.name, period, ...base, paid, balance, status, net_for_brand: round2(base.sales_total - base.total) };
+  const balance = round2(total - paid);
+  const nothing = base.charges <= 0 && base.card_credit <= 0 && paid === 0;
+  const status = nothing ? 'sin_cargo' : Math.abs(balance) <= 0.009 ? 'pagada' : balance < 0 ? 'a_favor_marca' : paid > 0 ? 'parcial' : 'pendiente';
+  return {
+    brand_id: brand.id, brand_name: brand.name, period, ...base, total, paid, balance, status,
+    // si el mes está cerrado y después aparecieron más cobros en el POS de MAJA, avisar
+    card_credit_live: liveCredit, card_credit_changed: base.closed && Math.abs(liveCredit - base.card_credit) > 0.009,
+  };
 }
 
 /** Meses que corren para una marca: desde su mes de inicio hasta el actual. */

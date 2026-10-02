@@ -310,11 +310,3 @@ cardsRouter.post('/cards/txns/:id/fix', (req, res) => {
   db.prepare('UPDATE sales SET payment_method = ?, pos = ?, installments = ? WHERE id = ?').run(method, term.owner, method === 'Crédito' ? t.installments : null, sale.id);
   res.json({ ok: true, payment_method: method, pos: term.owner });
 });
-
-/** Para la liquidación: lo que se cobró en el POS de MAJA por ventas de una marca en un mes. */
-export function cardCollectedByMaja(brandId, period) {
-  const r = db.prepare(`SELECT COALESCE(SUM(c.amount), 0) AS total, COUNT(*) AS n FROM card_txns c
-    JOIN pos_terminals pt ON pt.terminal = c.terminal JOIN sales s ON s.id = c.sale_id
-    WHERE pt.owner = 'maja' AND c.ignored = 0 AND s.brand_id = ? AND s.voided = 0 AND substr(s.date, 1, 7) = ?`).get(brandId, period);
-  return { total: round2(r.total), count: r.n };
-}

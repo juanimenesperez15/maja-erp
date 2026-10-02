@@ -2,9 +2,8 @@ import { Router } from 'express';
 import { db, tx } from '../db.js';
 import {
   auth, adminOnly, staffOnly, notSeller, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num, round2, today, currentPeriod,
-  shiftPeriod, isPeriod, settlementFor, brandPeriods, isPeriodClosed,
+  shiftPeriod, isPeriod, settlementFor, brandPeriods, isPeriodClosed, majaPosCollections, creditOf,
 } from '../lib.js';
-import { cardCollectedByMaja } from './cards.js';
 import { PAYMENT_METHODS, credentialsFor, emitForSale, emitVoidCreditNote, pdfForSale } from '../billing.js';
 
 export const moneyRouter = Router();
@@ -24,7 +23,8 @@ moneyRouter.get('/sales', (req, res) => {
   const rows = db.prepare(`
     SELECT si.*, s.date, s.payment_method, s.pos, s.installments, s.notes, s.voided, s.cfe_kind, s.customer_doc_type, s.customer_doc, s.customer_name,
       s.invoice_status, s.invoice_number, s.invoice_error, s.cfe_id, s.cfe_mode, s.ref_sale_id, s.void_cfe_id, s.void_cfe_number,
-      b.name AS brand_name, p.variant
+      b.name AS brand_name, p.variant,
+      (SELECT pt.owner FROM card_txns c JOIN pos_terminals pt ON pt.terminal = c.terminal WHERE c.sale_id = s.id AND c.ignored = 0 LIMIT 1) AS handy_pos
     FROM sale_items si JOIN sales s ON s.id = si.sale_id JOIN brands b ON b.id = si.brand_id
     LEFT JOIN products p ON p.id = si.product_id
     WHERE ${where.join(' AND ')} ORDER BY s.date DESC, s.id DESC, si.id`).all(...args);
@@ -173,7 +173,8 @@ moneyRouter.get('/settlements/detail', notSeller, (req, res) => {
     FROM sale_items si JOIN sales s ON s.id = si.sale_id
     WHERE si.brand_id = ? AND s.voided = 0 AND substr(s.date, 1, 7) = ?
     GROUP BY si.sku, si.description ORDER BY total DESC`).all(brandId, period);
-  res.json({ settlement, payments, products, card_maja: cardCollectedByMaja(brandId, period) });
+  const collections = majaPosCollections(brandId, period).map((c) => ({ ...c, credit: creditOf(c) }));
+  res.json({ settlement, payments, products, collections });
 });
 
 moneyRouter.post('/settlements/close', adminOnly, (req, res) => {
@@ -183,8 +184,8 @@ moneyRouter.post('/settlements/close', adminOnly, (req, res) => {
   if (isPeriodClosed(brandId, period)) throw bad('Ese mes ya está cerrado');
   const brand = db.prepare('SELECT * FROM brands WHERE id = ?').get(brandId);
   const s = settlementFor(brand, period);
-  db.prepare(`INSERT INTO settlements (brand_id, period, sales_total, units, commission_pct, commission, fee, iva, total, closed_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(brandId, period, s.sales_total, s.units, s.commission_pct, s.commission, s.fee, s.iva, s.total, req.user.id);
+  db.prepare(`INSERT INTO settlements (brand_id, period, sales_total, units, commission_pct, commission, fee, iva, total, card_credit, closed_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(brandId, period, s.sales_total, s.units, s.commission_pct, s.commission, s.fee, s.iva, s.total, s.card_credit, req.user.id);
   res.json(settlementFor(brand, period));
 });
 
@@ -197,6 +198,7 @@ moneyRouter.post('/settlements/reopen', adminOnly, (req, res) => {
 moneyRouter.post('/payments', adminOnly, (req, res) => {
   const brandId = requireBrand(req, req.body.brand_id);
   if (!isPeriod(req.body.period)) throw bad('Mes inválido');
+  // positivo: la marca le paga a MAJA · negativo: MAJA le paga a la marca
   const amount = round2(num(req.body.amount));
   if (!amount) throw bad('Poné el monto');
   const paidAt = str(req.body.paid_at) || today();
@@ -266,19 +268,22 @@ moneyRouter.get('/dashboard', (req, res) => {
   const brands = db.prepare(`SELECT * FROM brands WHERE active = 1 ${brandId ? 'AND id = ?' : ''} ORDER BY name`).all(...ba);
   const byBrand = brands.map((b) => {
     const s = brandPeriods(b).includes(period) ? settlementFor(b, period) : null;
-    const owed = brandPeriods(b).reduce((acc, p) => acc + Math.max(0, settlementFor(b, p).balance), 0);
-    return { brand_id: b.id, brand_name: b.name, sales: s?.sales_total ?? 0, units: s?.units ?? 0, commission: s?.commission ?? 0, fee: s?.fee ?? 0, total: s?.total ?? 0, owed: round2(owed) };
+    const balances = brandPeriods(b).map((p) => settlementFor(b, p).balance);
+    const owed = balances.reduce((acc, x) => acc + Math.max(0, x), 0);
+    const inFavor = balances.reduce((acc, x) => acc + Math.max(0, -x), 0);
+    return { brand_id: b.id, brand_name: b.name, sales: s?.sales_total ?? 0, units: s?.units ?? 0, commission: s?.commission ?? 0, fee: s?.fee ?? 0, total: s?.charges ?? 0, card_credit: s?.card_credit ?? 0, owed: round2(owed), in_favor: round2(inFavor) };
   });
 
   // la vendedora ve ventas y stock, no comisiones, cuotas ni saldos
   if (req.user.role === 'vendedora') {
-    byBrand.forEach((b) => { delete b.commission; delete b.fee; delete b.total; delete b.owed; });
+    byBrand.forEach((b) => { delete b.commission; delete b.fee; delete b.total; delete b.owed; delete b.in_favor; });
   }
   const money = req.user.role === 'vendedora' ? {} : {
     commission: round2(byBrand.reduce((a, b) => a + b.commission, 0)),
     fees: round2(byBrand.reduce((a, b) => a + b.fee, 0)),
     to_pay: round2(byBrand.reduce((a, b) => a + b.total, 0)),
     owed: round2(byBrand.reduce((a, b) => a + b.owed, 0)),
+    in_favor: round2(byBrand.reduce((a, b) => a + b.in_favor, 0)),
   };
   res.json({
     period, prev_period: prev,

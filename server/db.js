@@ -173,6 +173,7 @@ ensureColumn('sales', 'void_cfe_number', 'TEXT');
 // armado de pedidos y quién retiró
 ensureColumn('order_items', 'picked_qty', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('orders', 'picked_up_by', 'TEXT');
+ensureColumn('settlements', 'card_credit', 'REAL NOT NULL DEFAULT 0');
 // perfil de vendedora: la tabla users se creó con CHECK (role IN ('admin','marca')) y SQLite no deja cambiarlo
 const usersSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()?.sql ?? '';
 if (!usersSql.includes('vendedora')) {

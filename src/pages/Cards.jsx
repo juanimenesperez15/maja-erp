@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CreditCard, Upload, RefreshCw, Wrench, Unlink, EyeOff, Eye, Info } from 'lucide-react';
+import { CreditCard, Upload, RefreshCw, Wrench, Unlink, EyeOff, Eye, Info, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, PageHeader, Select, Stat, Tabs, useToast, cx } from '../components/ui.jsx';
@@ -137,6 +137,8 @@ export default function Cards() {
             <Field label="Hasta"><Input type="date" value={range.to || data?.to || ''} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
           </div>
 
+          <MajaPosErrors txns={txns} hasMajaPos={(terms.data || []).some((t) => t.owner === 'maja')} busy={busy} act={act} />
+
           <div className="mb-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
             <Stat label="Cobros con tarjeta" value={fmtInt(txns.length)} sub={fmtMoney(txns.reduce((a, t) => a + (t.currency === 'UYU' ? t.amount : 0), 0))} />
             <Stat label="Conciliados" value={fmtInt(counts.ok)} delay={50} />
@@ -162,7 +164,7 @@ export default function Cards() {
                   </tbody>
                 </table>
               </div>
-              <p className="px-5 pb-4 pt-2 text-[12px] text-muted">Solo cobros unidos a una venta. Lo cobrado en el POS de MAJA entró a la cuenta de MAJA y es plata de la marca.</p>
+              <p className="px-5 pb-4 pt-2 text-[12px] text-muted">Solo cobros unidos a una venta. Lo cobrado en el POS de MAJA es plata de la marca que entró a MAJA: se descuenta solo en su liquidación del mes.</p>
             </Card>
           )}
 
@@ -193,6 +195,90 @@ export default function Cards() {
         </>
       )}
     </>
+  );
+}
+
+/**
+ * El error que busca la dueña: la vendedora anotó "POS de la marca" y la tarjeta se pasó en el POS de MAJA.
+ * Para encontrarlo alcanza con el reporte del POS de MAJA.
+ */
+function MajaPosErrors({ txns, hasMajaPos, busy, act }) {
+  const errors = txns.filter((t) => t.status === 'pos_equivocado' && t.owner === 'maja');
+  const reverse = txns.filter((t) => t.status === 'pos_equivocado' && t.owner === 'marca');
+  const unknownOnMaja = txns.filter((t) => t.owner === 'maja' && t.status === 'sin_venta');
+  const byBrand = Object.values(errors.reduce((acc, t) => {
+    const b = (acc[t.sale.brand_id] ??= { brand: t.sale.brand_name, n: 0, total: 0 });
+    b.n++;
+    b.total += t.amount;
+    return acc;
+  }, {}));
+  const fixAll = () => act('fixall', async () => {
+    for (const t of [...errors, ...reverse]) await api(`/cards/txns/${t.id}/fix`, { method: 'POST' });
+  }, `${errors.length + reverse.length} ventas corregidas según Handy`);
+
+  if (!hasMajaPos) {
+    return (
+      <div className="rise mb-6 flex items-start gap-3 rounded-xl border border-warn/30 bg-warn-soft px-5 py-4 text-[13px] text-warn">
+        <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+        <div><b>Falta el POS de MAJA.</b> Para encontrar las ventas anotadas en el POS de la marca que se cobraron en el de MAJA, subí el reporte de Actividad de la terminal de MAJA y marcala como "MAJA" en la lista de POS.</div>
+      </div>
+    );
+  }
+
+  return (
+    <Card className={cx('rise mb-6 overflow-hidden', errors.length ? 'border-bad/40' : 'border-ok/40')}>
+      <div className={cx('flex flex-wrap items-start justify-between gap-4 px-5 py-4', errors.length ? 'bg-bad-soft/60' : 'bg-ok-soft/60')}>
+        <div className="flex min-w-0 items-start gap-3">
+          {errors.length ? <AlertTriangle size={22} className="mt-0.5 shrink-0 text-bad" /> : <CheckCircle2 size={22} className="mt-0.5 shrink-0 text-ok" />}
+          <div>
+            <div className="font-display text-[26px] leading-tight">
+              {errors.length
+                ? `${errors.length} ${errors.length === 1 ? 'venta anotada' : 'ventas anotadas'} en el POS de la marca que se ${errors.length === 1 ? 'cobró' : 'cobraron'} en el de MAJA`
+                : 'Ninguna venta anotada en el POS de la marca se cobró en el de MAJA'}
+            </div>
+            <div className="mt-1 text-[13px] text-ink2">
+              {errors.length
+                ? <>Suman <b className="num">{fmtMoney(errors.reduce((a, t) => a + t.amount, 0))}</b>. Es plata de las marcas que entró a MAJA: ya se descuenta sola de lo que cada marca tiene que pagar este mes.</>
+                : 'Según el reporte del POS de MAJA en estas fechas.'}
+            </div>
+          </div>
+        </div>
+        {(errors.length > 0 || reverse.length > 0) && (
+          <Button variant="accent" onClick={fixAll} loading={busy === 'fixall'}><Wrench size={15} />Corregir {errors.length + reverse.length === 1 ? 'la venta' : `las ${errors.length + reverse.length} ventas`}</Button>
+        )}
+      </div>
+      {byBrand.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t border-line px-5 py-3">
+          {byBrand.sort((a, b) => b.total - a.total).map((b) => (
+            <span key={b.brand} className="rounded-full border border-line bg-card px-3 py-1 text-[13px]"><b>{b.brand}</b> · {b.n} · <span className="num">{fmtMoney(b.total)}</span></span>
+          ))}
+        </div>
+      )}
+      {errors.length > 0 && (
+        <div className="overflow-x-auto border-t border-line">
+          <table className="tbl">
+            <thead><tr><th>Cobrado en el POS de MAJA</th><th>Tarjeta</th><th className="text-right">Importe</th><th>Venta</th><th>Anotada como</th></tr></thead>
+            <tbody>
+              {errors.map((t) => (
+                <tr key={t.id}>
+                  <td className="whitespace-nowrap">{fmtDateTime(`${t.txn_at.replace(' ', 'T')}:00-03:00`)}<span className="block font-mono text-[11px] text-muted">{t.terminal}{t.invoice_number && ` · fact. ${t.invoice_number}`}</span></td>
+                  <td className="text-[13px]">{t.network} ···{String(t.card || '').slice(-4)}<span className="block text-[12px] text-muted">{t.movement}</span></td>
+                  <td className="num whitespace-nowrap text-right font-semibold">{fmtMoney(t.amount)}</td>
+                  <td className="text-[13px]"><b>#{t.sale.id}</b> · {t.sale.brand_name}<span className="block text-[12px] text-muted">{fmtDate(t.sale.date)}</span></td>
+                  <td className="text-[13px]"><span className="font-semibold text-bad">POS de {t.sale.brand_name}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {(reverse.length > 0 || unknownOnMaja.length > 0) && (
+        <div className="space-y-1 border-t border-line px-5 py-3 text-[13px] text-ink2">
+          {reverse.length > 0 && <div>Al revés: {reverse.length} {reverse.length === 1 ? 'venta anotada' : 'ventas anotadas'} en el POS de MAJA {reverse.length === 1 ? 'se cobró' : 'se cobraron'} en el de la marca (también se corrigen con el botón).</div>}
+          {unknownOnMaja.length > 0 && <div>Hay {unknownOnMaja.length} {unknownOnMaja.length === 1 ? 'cobro' : 'cobros'} en el POS de MAJA sin venta que coincida: revisalos abajo en "Para revisar" (puede ser una venta no registrada o con otro importe).</div>}
+        </div>
+      )}
+    </Card>
   );
 }
 

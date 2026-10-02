@@ -66,7 +66,7 @@ function BrandView({ period, data, brandId, isAdmin, isSeller }) {
         {!isSeller && <>
           <Stat label="Comisión + cuota del mes" value={fmtMoney(k.to_pay)} sub={`Comisión ${fmtMoney(k.commission)} · cuota ${fmtMoney(k.fees)}`} delay={120} />
           <Stat label={isAdmin ? 'Saldo pendiente con MAJA' : 'Saldo a pagar a MAJA'} value={fmtMoney(k.owed)} tone={k.owed > 0 ? 'accent' : undefined}
-            sub={<Link to="/liquidaciones" className="underline decoration-line underline-offset-2 hover:text-ink">Ver detalle</Link>} delay={180} />
+            sub={<>{k.in_favor > 0 && <span className="block text-ok">{fmtMoney(k.in_favor)} a favor de la marca</span>}<Link to="/liquidaciones" className="underline decoration-line underline-offset-2 hover:text-ink">Ver detalle</Link></>} delay={180} />
         </>}
         {isSeller && <>
           <Stat label="Stock en tienda" value={fmtInt(data.stock.units)} sub={`${fmtInt(data.stock.skus)} artículos`} delay={120} />
