@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, tx } from '../db.js';
-import { auth, adminOnly, staffOnly, bad, num, round2, today, currentPeriod, shiftPeriod, isPeriod, settlementFor, brandPeriods } from '../lib.js';
+import { auth, adminOnly, staffOnly, bad, num, round2, audit, today, currentPeriod, shiftPeriod, isPeriod, settlementFor, brandPeriods } from '../lib.js';
 
 export const insightsRouter = Router();
 insightsRouter.use(auth);
@@ -174,5 +174,6 @@ insightsRouter.put('/goals', adminOnly, (req, res) => {
         ON CONFLICT(brand_id, period) DO UPDATE SET amount = excluded.amount, updated_at = datetime('now')`).run(brandId, period, amount);
     }
   });
+  audit(req, 'objetivos', { entity: 'objetivo', summary: `Actualizó los objetivos de ${period}` });
   res.json({ ok: true });
 });

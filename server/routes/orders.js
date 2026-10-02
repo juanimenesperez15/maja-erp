@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, tx } from '../db.js';
-import { auth, isStaff, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num } from '../lib.js';
+import { auth, isStaff, audit, notify, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num } from '../lib.js';
 
 export const ordersRouter = Router();
 ordersRouter.use(auth);
@@ -72,6 +72,13 @@ ordersRouter.post('/orders', (req, res) => {
     clean.forEach((c) => ins.run(oid, c.product_id, c.sku, c.description, c.variant, c.price, c.barcode, c.qty));
     return oid;
   });
+  // si lo pidió la marca, avisar a la tienda
+  if (req.user.role === 'marca') {
+    const units = clean.reduce((a, c) => a + c.qty, 0);
+    const brandName = db.prepare('SELECT name FROM brands WHERE id = ?').get(brandId).name;
+    const what = { ingreso: `avisa un ingreso de ${units} unidades`, pickup: `pidió armar un pick up de ${units} unidades${str(req.body.customer_name) ? ` para ${str(req.body.customer_name)}` : ''}`, retiro: `quiere retirar ${units} unidades` }[type];
+    notify({ audience: 'staff', title: `${brandName} ${what}`, body: str(req.body.notes), link: type === 'pickup' ? '/pickups' : '/pedidos' });
+  }
   res.json({ id });
 });
 
@@ -131,5 +138,25 @@ ordersRouter.put('/orders/:id/status', (req, res) => {
       completed_at = CASE WHEN ? = 'completado' THEN datetime('now') ELSE completed_at END WHERE id = ?`)
       .run(next, isStaff(req.user) ? str(req.body.admin_notes) : null, next === 'completado' ? pickedUpBy : null, next, order.id);
   });
+  const units = order.items.reduce((a, i) => a + i.picked_qty, 0);
+  const asked = order.items.reduce((a, i) => a + i.qty, 0);
+  const tag = { ingreso: 'Ingreso', pickup: 'Pick up', retiro: 'Retiro' }[order.type];
+  if (next === 'cancelado') {
+    audit(req, 'pedido_cancelado', { entity: 'pedido', entityId: order.id, brandId: order.brand_id, summary: `Canceló ${tag.toLowerCase()} #${order.id} de ${order.brand_name}` });
+    notify(req.user.role === 'marca'
+      ? { audience: 'staff', title: `${order.brand_name} canceló el ${tag.toLowerCase()} #${order.id}`, link: order.type === 'pickup' ? '/pickups' : '/pedidos' }
+      : { audience: 'brand', brandId: order.brand_id, title: `MAJA canceló tu ${tag.toLowerCase()} #${order.id}`, body: str(req.body.admin_notes), link: order.type === 'pickup' ? '/pickups' : '/pedidos' });
+  }
+  if (next === 'listo' && order.type === 'pickup') {
+    notify({ audience: 'brand', brandId: order.brand_id, title: `Tu pick up #${order.id}${order.customer_name ? ` (${order.customer_name})` : ''} está listo para retirar`, body: units < asked ? `Se armaron ${units} de ${asked} unidades.` : null, link: '/pickups' });
+  }
+  if (next === 'completado') {
+    audit(req, 'pedido_completado', { entity: 'pedido', entityId: order.id, brandId: order.brand_id, summary: `${tag} #${order.id} de ${order.brand_name}: ${order.type === 'ingreso' ? 'recibido' : 'retirado'}, ${units} de ${asked} unidades${pickedUpBy ? ` (retiró ${pickedUpBy})` : ''}` });
+    notify({
+      audience: 'brand', brandId: order.brand_id, link: order.type === 'pickup' ? '/pickups' : '/pedidos',
+      title: order.type === 'ingreso' ? `Recibimos tu mercadería (ingreso #${order.id}): ${units} unidades` : `${tag} #${order.id} retirado${pickedUpBy ? ` por ${pickedUpBy}` : ''}`,
+      body: units !== asked ? `Avisaste ${asked} unidades y ${order.type === 'ingreso' ? 'llegaron' : 'se entregaron'} ${units}.` : null,
+    });
+  }
   res.json(loadOrder(req, order.id));
 });

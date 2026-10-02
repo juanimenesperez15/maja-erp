@@ -38,15 +38,18 @@ export default function ScanBox({ onScan, placeholder = 'Escaneá o escribí el 
 
   useEffect(() => { ref.current?.focus(); }, []);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     const code = value.trim();
     setValue('');
     if (!code) return;
-    const r = onScan(code) ?? { ok: false, text: 'Sin resultado' };
+    // onScan puede responder al toque o consultar al servidor (devuelve una promesa)
+    let r;
+    try { r = (await onScan(code)) ?? { ok: false, text: 'Sin resultado' }; } catch (err) { r = { ok: false, text: err.message }; }
     beep(r.ok);
     if (r.ok) setCount((n) => n + 1);
     setLast({ ...r, code, at: Date.now() });
+    ref.current?.focus();
   };
 
   return (

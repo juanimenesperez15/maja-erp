@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, tx } from '../db.js';
-import { auth, adminOnly, bad, notFound, round2, str, today } from '../lib.js';
+import { auth, adminOnly, bad, notFound, round2, str, today, audit } from '../lib.js';
 
 /*
  * Conciliación de tarjetas contra los reportes de actividad de Handy.
@@ -107,7 +107,9 @@ export function parseHandySheets(sheets) {
 }
 
 // ---------- cruce automático ----------
-const saleTotals = () => Object.fromEntries(db.prepare('SELECT sale_id, SUM(total) AS t FROM sale_items GROUP BY sale_id').all().map((r) => [r.sale_id, r.t]));
+// lo cobrado con la tarjeta: el total de la venta, o solo la diferencia si fue un cambio de prenda
+const saleTotals = () => Object.fromEntries(db.prepare('SELECT s.id, COALESCE(s.charged, SUM(si.total)) AS t FROM sales s JOIN sale_items si ON si.sale_id = s.id GROUP BY s.id').all().map((r) => [r.id, r.t]));
+const normAuth = (a) => String(a ?? '').replace(/\s/g, '').replace(/^0+/, '').toUpperCase();
 const digits = (s) => String(s ?? '').replace(/\D/g, '').replace(/^0+/, '');
 // las ventas se guardan con datetime('now') en UTC; el reporte viene en hora de Uruguay (UTC−3)
 const minutesBetween = (txnAtLocal, createdUtc) => Math.abs(Date.parse(`${txnAtLocal.replace(' ', 'T')}:00-03:00`) - Date.parse(`${createdUtc.replace(' ', 'T')}Z`)) / 60000;
@@ -119,6 +121,8 @@ function candidatesFor(t, totals, taken, terminals) {
   const sales = db.prepare('SELECT * FROM sales WHERE voided = 0 AND date BETWEEN ? AND ?').all(shiftDate(t.date, -1), shiftDate(t.date, 1));
   return sales
     .filter((s) => !taken.has(s.id) && Math.abs((totals[s.id] ?? 0) - t.amount) < 0.5)
+    // si las dos tienen n° de autorización y no coinciden, no es este cobro
+    .filter((s) => !(s.authorization && t.authorization && normAuth(s.authorization) !== normAuth(t.authorization)))
     .map((s) => {
       let score = 0;
       if (s.date === t.date) score += 3;
@@ -126,6 +130,7 @@ function candidatesFor(t, totals, taken, terminals) {
       if (mins <= 30) score += 2; else if (mins <= 180) score += 1;
       const inv = digits(t.invoice_number);
       if (inv && [s.invoice_number, s.cfe_numero].some((x) => digits(x) && (digits(x) === inv || digits(x).endsWith(inv)))) score += 3;
+      if (s.authorization && t.authorization && normAuth(s.authorization) === normAuth(t.authorization)) score += 8; // el voucher dice cuál es
       if (CARD_METHODS.includes(s.payment_method)) score += 1;
       if ((isDebit(t.movement) && s.payment_method === 'Débito') || (isCredit(t.movement) && s.payment_method === 'Crédito')) score += 1;
       if (term?.owner === 'marca' && term.brand_id === s.brand_id) score += 2;
@@ -306,6 +311,7 @@ cardsRouter.get('/cards/txns/:id', (req, res) => {
     if (inv) reasons.push({ ok: !!saleInv && (saleInv === inv || saleInv.endsWith(inv)), text: `N° de factura: ${t.invoice_number} en Handy, ${sale.invoice_number || sale.cfe_numero || 'sin número'} en la venta` });
     const mins = Math.round(minutesBetween(t.txn_at, sale.created_at));
     reasons.push({ ok: mins <= 30, text: mins <= 180 ? `La venta se cargó ${mins} min ${Date.parse(`${sale.created_at.replace(' ', 'T')}Z`) >= Date.parse(`${t.txn_at.replace(' ', 'T')}:00-03:00`) ? 'después' : 'antes'} del cobro` : 'La venta se cargó en otro momento del día (no se pudo comparar la hora)' });
+    if (t.authorization || sale.authorization) reasons.push({ ok: !!sale.authorization && normAuth(sale.authorization) === normAuth(t.authorization), text: `N° de autorización: ${t.authorization || '—'} en Handy, ${sale.authorization || 'sin anotar'} en la venta` });
     reasons.push({ ok: (isDebit(t.movement) && sale.payment_method === 'Débito') || (isCredit(t.movement) && sale.payment_method === 'Crédito'), text: `Medio: ${t.movement} en Handy, ${sale.payment_method} en la venta` });
   }
   res.json({
@@ -344,6 +350,7 @@ cardsRouter.post('/cards/txns/:id/fix', (req, res) => {
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(t.sale_id);
   if (term.owner === 'marca' && term.brand_id !== sale.brand_id) throw bad('Se cobró en el POS de otra marca: eso no se corrige en la venta, hay que arreglarlo entre las marcas');
   const method = isDebit(t.movement) ? 'Débito' : 'Crédito';
-  db.prepare('UPDATE sales SET payment_method = ?, pos = ?, installments = ? WHERE id = ?').run(method, term.owner, method === 'Crédito' ? t.installments : null, sale.id);
+  db.prepare('UPDATE sales SET payment_method = ?, pos = ?, installments = ?, authorization = COALESCE(authorization, ?) WHERE id = ?').run(method, term.owner, method === 'Crédito' ? t.installments : null, t.authorization, sale.id);
+  audit(req, 'correccion_pos', { entity: 'venta', entityId: sale.id, brandId: sale.brand_id, summary: `Corrigió la venta #${sale.id} según Handy: ${sale.payment_method}${sale.pos ? ` · POS ${sale.pos}` : ''} → ${method} · POS ${term.owner}` });
   res.json({ ok: true, payment_method: method, pos: term.owner });
 });

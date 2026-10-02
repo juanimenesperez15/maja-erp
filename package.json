@@ -8,15 +8,18 @@
   },
   "scripts": {
     "dev": "concurrently -k -n api,web \"node --disable-warning=ExperimentalWarning --watch server/index.js\" \"vite\"",
-    "build": "vite build",
-    "start": "node --disable-warning=ExperimentalWarning server/index.js"
+    "build": "node --test tests/*.test.mjs && vite build",
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "test": "node --test --test-reporter=spec tests/*.test.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.6.1",
     "concurrently": "^10.0.5",
     "express": "^5.2.1",
+    "jsbarcode": "^3.12.3",
     "lucide-react": "^1.49.0",
+    "nodemailer": "^10.0.13",
     "postcss": "^8.5.28",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

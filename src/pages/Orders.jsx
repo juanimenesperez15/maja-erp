@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Plus, Truck, ShoppingBag, Trash2, Phone, Minus, Check, CheckCheck, PackageCheck, Upload } from 'lucide-react';
 import { api } from '../lib/api.js';
+import { Link } from 'react-router-dom';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, Tabs, Textarea, useToast, cx, STATUS_LABEL, STATUS_TONE, TYPE_LABEL } from '../components/ui.jsx';
 import ProductPicker from '../components/ProductPicker.jsx';
@@ -407,6 +408,13 @@ function OrderModal({ id, isAdmin, onClose, onChanged }) {
             {canPick && isIngreso && <p className="mt-2 text-[12px] text-muted">Al recibir, entra al stock lo que marcaste como recibido.</p>}
           </div>
 
+          {isAdmin && o.type === 'ingreso' && o.status === 'completado' && (
+            <Link to={`/etiquetas?pedido=${o.id}`} className="inline-flex items-center gap-1.5 text-[13px] font-semibold underline decoration-line underline-offset-2 hover:decoration-ink">Imprimir etiquetas de lo recibido</Link>
+          )}
+          {isAdmin && o.type === 'pickup' && o.status === 'listo' && o.customer_phone && (
+            <a href={`https://wa.me/${String(o.customer_phone).replace(/\D/g, '').replace(/^0/, '598')}?text=${encodeURIComponent(`Hola${o.customer_name ? ` ${o.customer_name}` : ''}! Tu pedido de ${o.brand_name}${o.external_ref ? ` (${o.external_ref})` : ''} ya está listo para retirar en MAJA.`)}`}
+              target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[13px] font-semibold underline decoration-line underline-offset-2 hover:decoration-ink">Avisarle por WhatsApp que está listo</a>
+          )}
           {o.notes && <div><div className="eyebrow mb-1">Notas de la marca</div><p className="whitespace-pre-wrap text-[13px] text-ink2">{o.notes}</p></div>}
           {isAdmin && !closed ? (
             <Field label="Nota de MAJA (la ve la marca)"><Textarea value={notes ?? o.admin_notes ?? ''} onChange={(e) => setNotes(e.target.value)} placeholder="Faltó una prenda, llegó dañada…" /></Field>

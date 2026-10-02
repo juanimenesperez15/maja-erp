@@ -48,10 +48,14 @@ export default function UsersPage() {
 // Qué puede ver y hacer cada perfil. Refleja los controles del servidor (no es solo visual).
 const PERMS = [
   ['Tablero', 'Toda la tienda: objetivos, cómo va cada marca, alertas, por medio de pago y por vendedora', 'Lo del día: sus ventas, pick ups por armar, mercadería por recibir, stock bajo', 'El suyo: ventas, unidades, stock, pendientes y saldo con MAJA'],
-  ['Ventas', 'Todas, con totales y exportación; anula ventas', 'Registra ventas y devoluciones; ve los últimos 7 días, sin totales ni exportar; no anula', 'Solo las suyas, con factura y medio de pago'],
+  ['Ventas', 'Todas, con totales y exportación; anula ventas', 'Registra ventas, cambios y notas de crédito asociadas a una venta; ve los últimos 7 días, sin totales ni exportar; no anula ventas enteras', 'Solo las suyas, con factura y medio de pago'],
   ['Stock', 'Todo; alta, edición, importación, ajustes y exportación', 'Consulta stock y movimientos; no crea artículos ni cambia precios', 'Su mercadería; carga artículos y precios (el stock entra con un ingreso)'],
   ['Pedidos y pick ups', 'Todo, incluido cancelar', 'Crea, arma, recibe y entrega; no cancela', 'Pide ingresos, retiros y pick ups; cancela mientras no se empezó a armar'],
-  ['Liquidaciones', 'Todas; cierra meses y registra pagos', '—', 'Sus comisiones, cuotas, lo cobrado en el POS de MAJA y su saldo'],
+  ['Caja', 'Ve todas las cajas y sus diferencias; reabre', 'Abre la caja, anota entradas y salidas, cuenta y cierra', '—'],
+  ['Conteo y etiquetas', 'Cuenta, revisa las diferencias y aplica el ajuste; imprime etiquetas', 'Cuenta con el escáner (no aplica el ajuste); imprime etiquetas', '—'],
+  ['Liquidaciones', 'Todas; cierra meses, factura a la marca y registra pagos', '—', 'Sus comisiones, cuotas, lo cobrado en el POS de MAJA, su saldo, la factura de MAJA y el resumen en PDF'],
+  ['Historial de cambios', 'Quién cambió precios, ajustó stock, anuló, pagó o cerró', '—', '—'],
+  ['Avisos', 'Pick ups nuevos, cajas con diferencia y todo lo de la tienda', 'Pick ups e ingresos nuevos que mandan las marcas', 'Pick up listo, mercadería recibida, liquidación cerrada y facturada'],
   ['Objetivos', 'Los define', '—', '—'],
   ['Conciliación de tarjetas', 'Sube reportes de Handy y corrige', '—', '—'],
   ['Marcas y usuarios', 'Los administra', 'Ve solo nombre y razón social de cada marca', 'Ve solo su ficha'],
@@ -80,6 +84,27 @@ function PermissionTable() {
         </table>
       </div>
     </Card>
+  );
+}
+
+/** Link para que el usuario elija su contraseña (vence en 48 h): se copia o se manda por WhatsApp. */
+function ResetLink({ userId }) {
+  const toast = useToast();
+  const [link, setLink] = useState(null);
+  const make = async () => {
+    try { const r = await api(`/users/${userId}/reset-link`, { method: 'POST' }); setLink(r.link); } catch (e) { toast(e.message, 'bad'); }
+  };
+  if (!link) return <button type="button" onClick={make} className="text-[13px] text-ink2 underline decoration-line underline-offset-2 hover:text-ink">Generar link para que elija su contraseña</button>;
+  const wa = `https://wa.me/?text=${encodeURIComponent(`Para entrar a MAJA elegí tu contraseña acá (vence en 48 horas): ${link}`)}`;
+  return (
+    <div className="rounded-lg bg-sunk px-3 py-2 text-[12px]">
+      <div className="break-all font-mono">{link}</div>
+      <div className="mt-2 flex gap-3">
+        <button type="button" className="font-semibold underline" onClick={() => { navigator.clipboard?.writeText(link); toast('Link copiado'); }}>Copiar</button>
+        <a className="font-semibold underline" href={wa} target="_blank" rel="noreferrer">Mandar por WhatsApp</a>
+        <span className="text-muted">Vence en 48 h y sirve una sola vez.</span>
+      </div>
+    </div>
   );
 }
 
@@ -129,6 +154,7 @@ function UserModal({ user, onClose, onSaved }) {
         </div>
         <Field label="Nombre"><Input value={form.name} onChange={set('name')} /></Field>
         <Field label="Email (es el usuario para entrar)"><Input type="email" value={form.email} onChange={set('email')} autoComplete="off" /></Field>
+        {form.id && <ResetLink userId={form.id} />}
         <Field label={form.id ? 'Nueva contraseña' : 'Contraseña'} hint={form.id ? 'Dejala vacía para no cambiarla' : 'Mínimo 8 caracteres'}>
           <Input type="text" value={form.password} onChange={set('password')} autoComplete="new-password" />
         </Field>

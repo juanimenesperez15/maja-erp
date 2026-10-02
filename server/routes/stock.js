@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, tx } from '../db.js';
-import { auth, adminOnly, isStaff, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num } from '../lib.js';
+import { auth, adminOnly, isStaff, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num, audit } from '../lib.js';
 
 export const stockRouter = Router();
 stockRouter.use(auth);
@@ -71,6 +71,10 @@ stockRouter.put('/products/:id', (req, res) => {
   if (p.barcode && db.prepare('SELECT 1 FROM products WHERE brand_id = ? AND barcode = ? AND id <> ?').get(prod.brand_id, p.barcode, prod.id)) throw bad(`El código de barras ${p.barcode} ya es de otro artículo`);
   db.prepare('UPDATE products SET sku = ?, name = ?, variant = ?, barcode = ?, price = ?, min_stock = ?, active = ? WHERE id = ?')
     .run(p.sku, p.name, p.variant, p.barcode, p.price, p.min_stock, p.active, prod.id);
+  const label = `${p.name}${p.variant ? ` ${p.variant}` : ''} (${p.sku})`;
+  if (prod.price !== p.price) audit(req, 'precio', { entity: 'articulo', entityId: prod.id, brandId: prod.brand_id, summary: `Precio de ${label}: $ ${prod.price} → $ ${p.price}`, detail: { antes: prod.price, despues: p.price } });
+  const changed = ['sku', 'name', 'variant', 'barcode', 'min_stock'].filter((k) => (prod[k] ?? null) !== (p[k] ?? null));
+  if (changed.length || prod.active !== p.active) audit(req, 'articulo', { entity: 'articulo', entityId: prod.id, brandId: prod.brand_id, summary: `Editó ${label}${prod.active !== p.active ? (p.active ? ' (lo reactivó)' : ' (lo desactivó)') : ''}`, detail: Object.fromEntries(changed.map((k) => [k, [prod[k], p[k]]])) });
   res.json({ ok: true });
 });
 
@@ -84,6 +88,7 @@ stockRouter.post('/products/:id/adjust', adminOnly, (req, res) => {
   if (!qty) throw bad('No hay diferencia para ajustar');
   if (!str(req.body.note)) throw bad('Contá el motivo del ajuste');
   tx(() => moveStock({ productId: prod.id, brandId: prod.brand_id, qty, reason: 'ajuste', note: str(req.body.note), userId: req.user.id }));
+  audit(req, 'ajuste_stock', { entity: 'articulo', entityId: prod.id, brandId: prod.brand_id, summary: `Ajustó stock de ${prod.name}${prod.variant ? ` ${prod.variant}` : ''}: ${prod.stock} → ${prod.stock + qty} (${str(req.body.note)})` });
   res.json({ ok: true, stock: prod.stock + qty });
 });
 
@@ -129,5 +134,6 @@ stockRouter.post('/products/import', (req, res) => {
       }
     });
   });
+  audit(req, 'importacion', { entity: 'articulo', brandId, summary: `Importó planilla: ${result.created} artículos nuevos, ${result.updated} actualizados${withStock ? ' (con stock)' : ''}` });
   res.json(result);
 });

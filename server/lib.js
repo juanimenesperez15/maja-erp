@@ -146,7 +146,8 @@ export function settlementFor(brand, period) {
   if (closed) {
     // en los meses viejos 'total' era solo comisión + cuota + IVA
     const charges = round2(closed.commission + closed.fee + closed.iva);
-    base = { sales_total: closed.sales_total, units: closed.units, commission_pct: closed.commission_pct, commission: closed.commission, fee: closed.fee, iva: closed.iva, charges, card_credit: closed.card_credit || 0, closed: true, closed_at: closed.closed_at };
+    base = { sales_total: closed.sales_total, units: closed.units, commission_pct: closed.commission_pct, commission: closed.commission, fee: closed.fee, iva: closed.iva, charges, card_credit: closed.card_credit || 0, closed: true, closed_at: closed.closed_at,
+      invoice_status: closed.invoice_status, invoice_number: closed.invoice_number, invoice_error: closed.invoice_error, has_invoice_pdf: !!closed.cfe_id };
   } else {
     const { sales_total, units } = brandSalesFor(brand.id, period);
     const commission = round2(sales_total * (brand.commission_pct || 0) / 100);
@@ -200,3 +201,19 @@ export const num = (v, def = 0) => {
   const n = Number(s);
   return Number.isFinite(n) ? n : def;
 };
+
+// ---------- historial de cambios ----------
+export function audit(req, action, { entity = null, entityId = null, brandId = null, summary, detail = null }) {
+  const u = req.user || {};
+  db.prepare('INSERT INTO audit_log (user_id, user_name, role, action, entity, entity_id, brand_id, summary, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(u.id ?? null, u.name ?? null, u.role ?? null, action, entity, entityId, brandId, summary, detail ? JSON.stringify(detail) : null);
+}
+
+// ---------- avisos dentro de la app ----------
+/** audience: staff (dueña y vendedoras), owner (solo la dueña) o brand (los usuarios de esa marca). */
+export function notify({ audience, brandId = null, title, body = null, link = null }) {
+  db.prepare('INSERT INTO notifications (audience, brand_id, title, body, link) VALUES (?, ?, ?, ?, ?)').run(audience, brandId, title, body, link);
+  notifyHooks.forEach((fn) => { try { fn({ audience, brandId, title, body, link }); } catch { /* el aviso por mail es opcional */ } });
+}
+const notifyHooks = [];
+export const onNotify = (fn) => notifyHooks.push(fn);

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db.js';
 import { publicBillingSettings, saveBillingSettings } from '../billing.js';
+import { audit } from '../lib.js';
 import { auth, adminOnly, bad, notFound, hashPassword, checkPassword, signToken, publicUser, str, num, isPeriod, HttpError } from '../lib.js';
 
 export const accessRouter = Router();
@@ -101,12 +102,14 @@ accessRouter.post('/brands', auth, adminOnly, (req, res) => {
       razon_social, billing_mode, iva_mode, biller_sucursal, biller_env, biller_token)
     VALUES (:name, :contact_name, :email, :phone, :rut, :commission_pct, :monthly_fee, :plus_iva, :start_period, :notes, :active,
       :razon_social, :billing_mode, :iva_mode, :biller_sucursal, :biller_env, :biller_token)`).run({ ...b, biller_token: str(req.body.biller_token) });
+  audit(req, 'marca', { entity: 'marca', entityId: Number(r.lastInsertRowid), brandId: Number(r.lastInsertRowid), summary: `Dio de alta la marca ${b.name} (comisión ${b.commission_pct} %, cuota $ ${b.monthly_fee})` });
   res.json({ id: Number(r.lastInsertRowid) });
 });
 
 accessRouter.put('/brands/:id', auth, adminOnly, (req, res) => {
   const id = Number(req.params.id);
-  if (!db.prepare('SELECT 1 FROM brands WHERE id = ?').get(id)) throw notFound('Marca inexistente');
+  const before = db.prepare('SELECT * FROM brands WHERE id = ?').get(id);
+  if (!before) throw notFound('Marca inexistente');
   const b = brandBody(req.body);
   if (!b.name) throw bad('Poné el nombre de la marca');
   if (db.prepare('SELECT 1 FROM brands WHERE name = ? AND id <> ?').get(b.name, id)) throw bad('Ya existe una marca con ese nombre');
@@ -116,6 +119,9 @@ accessRouter.put('/brands/:id', auth, adminOnly, (req, res) => {
     biller_sucursal = :biller_sucursal, biller_env = :biller_env WHERE id = :id`).run({ ...b, id });
   // el token solo se reemplaza si mandan uno nuevo
   if (str(req.body.biller_token)) db.prepare('UPDATE brands SET biller_token = ? WHERE id = ?').run(str(req.body.biller_token), id);
+  const changes = [['commission_pct', 'comisión'], ['monthly_fee', 'cuota'], ['plus_iva', 'IVA'], ['billing_mode', 'facturación'], ['active', 'activa'], ['name', 'nombre']]
+    .filter(([k]) => String(before[k] ?? '') !== String(b[k] ?? '')).map(([k, l]) => `${l}: ${before[k]} → ${b[k]}`);
+  if (changes.length) audit(req, 'marca', { entity: 'marca', entityId: id, brandId: id, summary: `Editó la marca ${b.name}: ${changes.join(', ')}` });
   res.json({ ok: true });
 });
 
@@ -139,6 +145,7 @@ accessRouter.post('/users', auth, adminOnly, (req, res) => {
   if (db.prepare('SELECT 1 FROM users WHERE email = ?').get(u.email)) throw bad('Ya hay un usuario con ese email');
   const r = db.prepare('INSERT INTO users (email, name, password_hash, role, brand_id, active) VALUES (?, ?, ?, ?, ?, ?)')
     .run(u.email, u.name, hashPassword(req.body.password), u.role, u.brand_id, u.active);
+  audit(req, 'usuario', { entity: 'usuario', entityId: Number(r.lastInsertRowid), summary: `Creó el usuario ${u.email} (${u.role})` });
   res.json({ id: Number(r.lastInsertRowid) });
 });
 
@@ -154,6 +161,8 @@ accessRouter.put('/users/:id', auth, adminOnly, (req, res) => {
   }
   db.prepare('UPDATE users SET name = ?, email = ?, role = ?, brand_id = ?, active = ? WHERE id = ?').run(u.name, u.email, u.role, u.brand_id, u.active, id);
   if (req.body.password) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(req.body.password), id);
+  const uchg = [current.role !== u.role && `rol ${current.role} → ${u.role}`, !!current.active !== !!u.active && (u.active ? 'activado' : 'desactivado'), req.body.password && 'cambió la contraseña'].filter(Boolean);
+  if (uchg.length) audit(req, 'usuario', { entity: 'usuario', entityId: id, summary: `Usuario ${u.email}: ${uchg.join(', ')}` });
   res.json({ ok: true });
 });
 

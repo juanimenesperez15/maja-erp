@@ -28,9 +28,23 @@ Pick ups: la marca pide, MAJA arma artículo por artículo (puede quedar incompl
 
 **Escáner de códigos de barras:** cada artículo puede tener su código de barras (EAN) además del SKU. En un pedido nuevo (ingreso, retiro o pick up) el modo Escáner suma 1 por lectura y agrega los códigos desconocidos como artículos nuevos (en ingresos); también se puede cargar desde planilla (SKU o código + cantidad). Al recibir o armar un pedido, escanear cada prenda la cuenta en su línea. En la caja, leer el código agrega el artículo a la venta.
 
+**Caja diaria:** la vendedora abre con el fondo, anota entradas y salidas de efectivo y al cerrar cuenta la plata; el sistema compara con lo esperado (fondo + ventas en efectivo ± movimientos) y le avisa a la dueña si hay diferencia.
+
+**Ventas con tarjeta:** además del POS se anota el n° de autorización del voucher; la conciliación lo usa para cruzar exacto. **Cambio de prenda** en un paso (devolución + venta nueva, se cobra o devuelve solo la diferencia) y **nota de crédito** asociada a una venta (la puede hacer la vendedora; no deja devolver más de lo vendido).
+
+**Factura a la marca:** al cerrar el mes, la dueña emite con el Biller de MAJA la e-Factura de comisión + cuota (o anota el número si la hace a mano). Resumen mensual en PDF para cada marca y envío por WhatsApp.
+
+**Etiquetas** con código de barras (rollo 50×30 o A4) para las prendas sin código, y **conteo de inventario** con escáner (la vendedora cuenta, la dueña aplica el ajuste).
+
+**Avisos** dentro de la app (campana) y por mail si se configuran SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM y APP_URL. **Historial de cambios** (precios, ajustes, anulaciones, pagos, cierres). **Recuperar contraseña** por mail, o con un link que genera la dueña.
+
 El stock se mueve solo: suma al recibir un ingreso, baja con cada venta, pick up entregado o retiro, y vuelve con una devolución o una venta anulada. Cada movimiento queda en el historial del artículo.
 
 Liquidación del mes de una marca = comisión % sobre lo vendido + cuota mensual (+ IVA 22 % si la marca está marcada así). Mientras el mes está abierto se recalcula; al cerrarlo se congela.
+
+## Pruebas
+
+`npm test` levanta el servidor sobre una base vacía y recorre todos los flujos (perfiles, stock, pedidos, ventas, caja, cambios, notas de crédito, tarjetas, conteo, liquidación, contraseñas). `npm run build` corre las pruebas antes de compilar: si fallan, no se publica.
 
 ## Uso local
 

@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Receipt, Download, Trash2, Ban, Undo2, FileText, RotateCw, AlertCircle, CheckCircle2, Wrench } from 'lucide-react';
+import { Plus, Receipt, Download, Trash2, Ban, Undo2, FileText, RotateCw, AlertCircle, CheckCircle2, Wrench, Repeat, FileMinus } from 'lucide-react';
 import { api, getToken } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, Stat, useToast, cx } from '../components/ui.jsx';
 import ProductPicker from '../components/ProductPicker.jsx';
+import PaymentFields, { paymentReady } from '../components/PaymentFields.jsx';
+import ExchangeModal from '../components/ExchangeModal.jsx';
+import ReturnModal from '../components/ReturnModal.jsx';
 import { currentPeriod, downloadCSV, fmtDate, fmtDateTime, fmtInt, fmtMoney, parseNum, todayISO } from '../lib/format.js';
 
 const PAYMENT_METHODS = ['Efectivo', 'Débito', 'Crédito', 'Transferencia', 'Mercado Pago', 'Otro'];
@@ -49,6 +52,8 @@ export default function Sales() {
   const [evidence, setEvidence] = useState(null);
   const { data, error, loading, reload } = useApi('/sales', { brand_id: brandId, from: range.from, to: range.to, include_voided: showVoided ? '1' : '' });
   const [creating, setCreating] = useState(false);
+  const [exchanging, setExchanging] = useState(false);
+  const [returning, setReturning] = useState(null); // true = buscar venta; número = esa venta
   const toast = useToast();
   const rows = data?.rows || [];
 
@@ -100,6 +105,8 @@ export default function Sales() {
     <>
       <PageHeader eyebrow={isAdmin ? 'Caja de la tienda' : 'Lo que vendió MAJA de tu marca'} title="Ventas">
         {!isSeller && <Button variant="outline" onClick={exportCSV} disabled={!rows.length}><Download size={15} />Exportar</Button>}
+        {isAdmin && <Button variant="outline" onClick={() => setReturning(true)}><FileMinus size={15} />Devolución</Button>}
+        {isAdmin && <Button variant="outline" onClick={() => setExchanging(true)}><Repeat size={15} />Cambio</Button>}
         {isAdmin && <Button onClick={() => setCreating(true)}><Plus size={16} />Registrar venta</Button>}
       </PageHeader>
 
@@ -146,12 +153,12 @@ export default function Sales() {
                         ))}
                       </ul>
                     </td>
-                    <td className="whitespace-nowrap align-top text-ink2">{g.payment_method || '—'}{g.payment_method === 'Crédito' && g.installments > 1 && ` ${g.installments} cuotas`}{g.pos && <span className="block text-[12px] text-muted">{g.pos === 'maja' ? 'POS de MAJA' : 'POS de la marca'}</span>}{posError(g) && <span className="mt-1 block">{isOwner
+                    <td className="whitespace-nowrap align-top text-ink2">{g.payment_method || '—'}{g.payment_method === 'Crédito' && g.installments > 1 && ` ${g.installments} cuotas`}{g.exchange_id && <span className="block text-[12px] text-accent">Cambio{g.charged !== null && g.charged !== undefined && Math.abs(g.charged) > 0.009 ? ` · ${g.charged > 0 ? 'cobró' : 'devolvió'} ${fmtMoney(Math.abs(g.charged))}` : ' sin diferencia'}</span>}{g.authorization && <span className="block font-mono text-[11px] text-muted">aut. {g.authorization}</span>}{g.pos && <span className="block text-[12px] text-muted">{g.pos === 'maja' ? 'POS de MAJA' : 'POS de la marca'}</span>}{posError(g) && <span className="mt-1 block">{isOwner
                       ? <button onClick={() => setEvidence(g.handy_txn_id)} title="Ver cómo se detectó" className="rounded-full transition hover:ring-2 hover:ring-bad/30"><Badge tone="bad">Handy: {g.handy_pos === 'maja' ? 'se cobró en el POS de MAJA' : 'se cobró en el POS de la marca'} ›</Badge></button>
                       : <Badge tone={isAdmin ? 'bad' : 'neutral'}>{isAdmin ? 'Handy: ' : ''}{g.handy_pos === 'maja' ? 'se cobró en el POS de MAJA' : 'se cobró en el POS de la marca'}</Badge>}</span>}</td>
                     <td className="align-top"><InvoiceCell g={g} isAdmin={isAdmin} onRetry={() => retry(g)} toast={toast} /></td>
                     <td className="num whitespace-nowrap text-right align-top font-semibold">{fmtMoney(g.items.reduce((a, i) => a + i.total, 0))}</td>
-                    {isAdmin && <td className="text-right align-top">{!g.voided && isOwner && <button title="Anular venta" onClick={() => voidSale(g)} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad"><Ban size={15} /></button>}</td>}
+                    {isAdmin && <td className="whitespace-nowrap text-right align-top">{!g.voided && g.items.some((it) => it.qty > 0) && <button title="Nota de crédito (devolución)" onClick={() => setReturning(g.sale_id)} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><FileMinus size={15} /></button>}{!g.voided && isOwner && <button title="Anular venta" onClick={() => voidSale(g)} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad"><Ban size={15} /></button>}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -161,6 +168,8 @@ export default function Sales() {
       </Card>
 
       {evidence && <EvidenceModal txnId={evidence} onClose={() => setEvidence(null)} onFixed={() => { setEvidence(null); reload(); }} />}
+      {returning && <ReturnModal saleId={returning === true ? null : returning} onClose={() => setReturning(null)} onSaved={() => { setReturning(null); reload(); }} />}
+      {exchanging && <ExchangeModal initialBrand={brandId} onClose={() => setExchanging(false)} onSaved={() => { setExchanging(false); reload(); }} />}
       {creating && <NewSaleModal initialBrand={brandId} onClose={() => setCreating(false)} onSaved={() => { setCreating(false); reload(); }} />}
     </>
   );
@@ -244,7 +253,7 @@ function NewSaleModal({ initialBrand, onClose, onSaved }) {
   const active = brands.filter((b) => b.active);
   const [brandId, setBrandId] = useState(initialBrand || (active.length === 1 ? String(active[0].id) : ''));
   const brand = active.find((b) => String(b.id) === String(brandId));
-  const [head, setHead] = useState({ date: todayISO(), payment_method: '', pos: '', installments: '1', cfe_kind: 'ticket', customer_doc_type: 'CI', customer_doc: '', customer_name: '', customer_email: '', invoice_number: '', ref_sale_id: '', notes: '' });
+  const [head, setHead] = useState({ date: todayISO(), payment_method: '', pos: '', installments: '1', authorization: '', cfe_kind: 'ticket', customer_doc_type: 'CI', customer_doc: '', customer_name: '', customer_email: '', invoice_number: '', ref_sale_id: '', notes: '' });
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -278,7 +287,7 @@ function NewSaleModal({ initialBrand, onClose, onSaved }) {
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
 
-  const ready = brand && head.payment_method && items.length && (!['Débito', 'Crédito'].includes(head.payment_method) || head.pos);
+  const ready = brand && items.length && paymentReady(head);
   return (
     <Modal open wide title="Registrar venta" onClose={onClose}
       footer={<div className="flex w-full items-center justify-between">
@@ -298,39 +307,7 @@ function NewSaleModal({ initialBrand, onClose, onSaved }) {
         </div>
 
         {/* 2. medio de pago */}
-        <div>
-          <div className="mb-1.5 text-[12px] font-semibold text-ink2">Medio de pago</div>
-          <div className="flex flex-wrap gap-2">
-            {PAYMENT_METHODS.map((m) => (
-              <button key={m} type="button" onClick={() => setHead({ ...head, payment_method: m })}
-                className={cx('h-9 rounded-md border px-3.5 text-[13px] font-medium transition', head.payment_method === m ? 'border-ink bg-ink text-paper' : 'border-line bg-card text-ink2 hover:border-ink/40')}>
-                {m}
-              </button>
-            ))}
-          </div>
-          {['Débito', 'Crédito'].includes(head.payment_method) && brand && (
-            <div className="fade mt-3 flex flex-wrap items-end gap-4 rounded-lg bg-sunk/70 px-3 py-3">
-              <div>
-                <div className="mb-1.5 text-[12px] font-semibold text-ink2">¿En qué POS se pasó la tarjeta?</div>
-                <div className="inline-flex rounded-md border border-line bg-card p-0.5">
-                  {[['maja', 'POS de MAJA'], ['marca', `POS de ${brand.name}`]].map(([v, l]) => (
-                    <button key={v} type="button" onClick={() => setHead({ ...head, pos: v })}
-                      className={cx('rounded px-3 py-1.5 text-[13px] font-medium', head.pos === v ? 'bg-ink text-paper' : 'text-ink2')}>{l}</button>
-                  ))}
-                </div>
-              </div>
-              {head.payment_method === 'Crédito' && (
-                <label className="block">
-                  <span className="mb-1.5 block text-[12px] font-semibold text-ink2">Cuotas</span>
-                  <select className="field h-9 w-24 py-1" value={head.installments} onChange={setH('installments')}>
-                    {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((c) => <option key={c} value={c}>{c === 1 ? 'Contado' : c}</option>)}
-                  </select>
-                </label>
-              )}
-              <p className="basis-full text-[12px] text-muted">Mirá el POS donde salió el comprobante: después se cruza con el reporte de Handy.</p>
-            </div>
-          )}
-        </div>
+        {brand ? <PaymentFields value={head} onChange={setHead} brandName={brand.name} /> : <PaymentFields value={head} onChange={setHead} />}
 
         {/* 3. artículos */}
         <div>
@@ -361,7 +338,6 @@ function NewSaleModal({ initialBrand, onClose, onSaved }) {
                       <td><Input className="h-8 py-1 text-right" inputMode="decimal" value={it.discount_pct} onChange={(e) => upd(i, 'discount_pct', e.target.value)} placeholder="0" /></td>
                       <td className="num whitespace-nowrap text-right font-semibold">{fmtMoney(lineTotal(it), true)}</td>
                       <td className="whitespace-nowrap">
-                        {!it.free && <button title="Pasar a devolución" onClick={() => upd(i, 'qty', String(-Math.abs(Number(it.qty) || 1)))} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><Undo2 size={14} /></button>}
                         <button onClick={() => setItems((l) => l.filter((_, j) => j !== i))} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad" aria-label="Quitar"><Trash2 size={14} /></button>
                       </td>
                     </tr>

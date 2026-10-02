@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Boxes, Download, History, Plus, Search, SlidersHorizontal, Upload, Pencil } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Boxes, Download, History, Plus, Search, SlidersHorizontal, Upload, Pencil, ClipboardList, Tags } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, Tabs, Textarea, useToast } from '../components/ui.jsx';
@@ -34,6 +35,8 @@ export default function Stock() {
   return (
     <>
       <PageHeader eyebrow={isAdmin ? 'Inventario de la tienda' : 'Tu mercadería en MAJA'} title="Stock">
+        {isAdmin && <Link to="/conteo"><Button variant="outline"><ClipboardList size={15} />Conteo</Button></Link>}
+        {isAdmin && <Link to="/etiquetas"><Button variant="outline"><Tags size={15} />Etiquetas</Button></Link>}
         {!isSeller && <Button variant="outline" onClick={exportCSV} disabled={!rows.length}><Download size={15} />Exportar</Button>}
         {!isSeller && <Button variant="outline" onClick={() => setModal({ type: 'import' })}><Upload size={15} />Importar planilla</Button>}
         {!isSeller && <Button onClick={() => setModal({ type: 'product', product: { sku: '', name: '', variant: '', price: '', min_stock: '', stock: '', active: true, brand_id: brandId } })}><Plus size={16} />Artículo</Button>}

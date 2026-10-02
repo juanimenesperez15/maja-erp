@@ -28,13 +28,14 @@ export function majaBiller() {
 }
 export function publicBillingSettings() {
   const c = majaBiller();
-  return { has_token: !!c.token, sucursal: c.sucursal || '', env: c.env };
+  return { has_token: !!c.token, sucursal: c.sucursal || '', env: c.env, iva_mode: majaIvaMode() };
 }
 export function saveBillingSettings(body) {
   if (body.token) setSetting('maja_biller_token', String(body.token).trim());
   if (body.clear_token) setSetting('maja_biller_token', '');
   setSetting('maja_biller_sucursal', String(body.sucursal ?? '').trim());
   setSetting('maja_biller_env', body.env === 'test' ? 'test' : 'produccion');
+  setMajaIvaMode(body.iva_mode);
 }
 
 /** Credenciales con las que se factura a nombre de esta marca, o null si es manual. */
@@ -162,6 +163,53 @@ export async function pdfForSale(sale, which = 'main') {
   const id = which === 'void' ? sale.void_cfe_id : sale.cfe_id;
   if (!id || !cred.token) throw bad('Este comprobante no tiene PDF en Biller');
   const data = await billerFetch(cred, 'GET', `/v2/comprobantes/pdf?id=${encodeURIComponent(id)}`);
+  let b64 = typeof data === 'string' ? data : data?.pdf ?? data?.data ?? data?.base64 ?? '';
+  b64 = String(b64).replace(/^data:application\/pdf;base64,/, '').replace(/\s+/g, '');
+  const buf = Buffer.from(b64, 'base64');
+  if (buf.subarray(0, 4).toString('latin1') !== '%PDF') throw bad('Biller no devolvió un PDF válido');
+  return buf;
+}
+
+// ---------- factura de MAJA a la marca por comisión + cuota del mes ----------
+export function majaIvaMode() { return getSetting('maja_iva_mode') || 'basica'; }
+export function setMajaIvaMode(v) { if (['basica', 'minimo', 'exento'].includes(v)) setSetting('maja_iva_mode', v); }
+
+/** e-Factura de MAJA a la marca (con su RUT) por la comisión y la cuota de un mes ya cerrado. */
+export async function emitBrandInvoice(brand, st) {
+  const cred = majaBiller();
+  if (!cred.token || !cred.sucursal) throw bad('Falta configurar el Biller de MAJA (token y sucursal) en Marcas → Facturación de MAJA');
+  if (!brand.rut) throw bad(`A ${brand.name} le falta el RUT para facturarle`);
+  const [y, m] = st.period.split('-');
+  const ivaMode = majaIvaMode();
+  const indicador = INDICADOR[ivaMode] ?? 3;
+  const items = [];
+  if (st.commission > 0) items.push({ cantidad: 1, concepto: `Comisión por ventas ${m}/${y} (${st.commission_pct} %)`, precio: round2(st.commission), indicador_facturacion: indicador });
+  if (st.fee > 0) items.push({ cantidad: 1, concepto: `Cuota mensual ${m}/${y}`, precio: round2(st.fee), indicador_facturacion: indicador });
+  if (!items.length) throw bad('No hay comisión ni cuota para facturar este mes');
+  const payload = {
+    tipo_comprobante: 111,
+    numero_interno: `MAJA-LIQ-${brand.id}-${st.period}`,
+    fecha_emision: ddmmyyyy(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Montevideo' }).format(new Date())),
+    forma_pago: 2, // crédito: se paga con la liquidación
+    sucursal: Number(cred.sucursal),
+    moneda: 'UYU',
+    // "más IVA": Biller suma el 22 %; si no, los montos ya lo incluyen
+    montos_brutos: brand.plus_iva || indicador !== 3 ? 0 : 1,
+    ...(ivaMode === 'minimo' ? { cae: { especial: 2 } } : {}),
+    cliente: {
+      tipo_documento: 2, documento: String(brand.rut).replace(/\D/g, ''), razon_social: (brand.razon_social || brand.name).slice(0, 70),
+      sucursal: { pais: 'UY', ...(brand.email ? { emails: [brand.email] } : {}) },
+    },
+    items,
+    adenda: `Liquidación ${m}/${y}. Lo cobrado en el POS de MAJA por ventas de la marca se descuenta en la liquidación.`,
+  };
+  const r = await billerFetch(cred, 'POST', '/v3/comprobantes/emitir', payload);
+  return { id: String(r.id), number: `e-Factura ${r.serie ?? ''}-${r.numero ?? ''}` };
+}
+
+export async function brandInvoicePdf(cfeId) {
+  const cred = majaBiller();
+  const data = await billerFetch(cred, 'GET', `/v2/comprobantes/pdf?id=${encodeURIComponent(cfeId)}`);
   let b64 = typeof data === 'string' ? data : data?.pdf ?? data?.data ?? data?.base64 ?? '';
   b64 = String(b64).replace(/^data:application\/pdf;base64,/, '').replace(/\s+/g, '');
   const buf = Buffer.from(b64, 'base64');

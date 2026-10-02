@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Boxes, Truck, ShoppingBag, Receipt, Landmark, Store, Users, LogOut, Menu, X, KeyRound, Target, CreditCard } from 'lucide-react';
+import { LayoutDashboard, Boxes, Truck, ShoppingBag, Receipt, Landmark, Store, Users, LogOut, Menu, X, KeyRound, Target, CreditCard, Wallet, History } from 'lucide-react';
 import { useSession } from '../lib/session.jsx';
 import { cx } from './ui.jsx';
 import { PreviewBanner, ViewSelect } from './ViewSwitcher.jsx';
+import NotificationBell from './NotificationBell.jsx';
 
 export default function Layout() {
   const { user, isAdmin, isOwner, isSeller, isPreview, endPreview, brands, brandId, setBrandFilter, logout } = useSession();
@@ -13,6 +14,7 @@ export default function Layout() {
   const nav = [
     { to: '/', label: 'Tablero', icon: LayoutDashboard, end: true },
     { to: '/ventas', label: 'Ventas', icon: Receipt },
+    ...(isAdmin ? [{ to: '/caja', label: 'Caja', icon: Wallet }] : []),
     { to: '/stock', label: 'Stock', icon: Boxes },
     { to: '/pedidos', label: 'Pedidos', icon: Truck },
     { to: '/pickups', label: 'Pick ups', icon: ShoppingBag },
@@ -21,6 +23,7 @@ export default function Layout() {
   const adminNav = [
     { to: '/objetivos', label: 'Objetivos', icon: Target },
     { to: '/tarjetas', label: 'Conciliación tarjetas', icon: CreditCard },
+    { to: '/historial', label: 'Historial de cambios', icon: History },
     { to: '/marcas', label: 'Marcas', icon: Store },
     { to: '/usuarios', label: 'Usuarios', icon: Users },
   ];
@@ -71,9 +74,10 @@ export default function Layout() {
           <button className="rounded-md p-1.5 hover:bg-sunk lg:hidden" onClick={() => setOpen(!open)} aria-label="Menú">{open ? <X size={20} /> : <Menu size={20} />}</button>
           <div className="font-display text-[22px] lg:hidden">MAJA</div>
           <div className="ml-auto flex items-center gap-3">
+            <NotificationBell />
             {isOwner && !isPreview && <ViewSelect className="hidden text-muted md:flex" />}
             {isAdmin ? (
-              !['/marcas', '/usuarios', '/cuenta', '/objetivos', '/tarjetas'].includes(loc.pathname) && !(isSeller && loc.pathname === '/') && (
+              !['/marcas', '/usuarios', '/cuenta', '/objetivos', '/tarjetas', '/caja', '/historial', '/conteo', '/etiquetas'].includes(loc.pathname) && !(isSeller && loc.pathname === '/') && (
                 <label className="flex items-center gap-2">
                   <span className="hidden text-[12px] text-muted sm:inline">Viendo</span>
                   <select className="field h-9 w-auto min-w-[190px] py-1.5" value={brandId} onChange={(e) => setBrandFilter(e.target.value)}>

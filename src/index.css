@@ -40,19 +40,22 @@ body::before {
 .num { font-variant-numeric: tabular-nums; }
 .eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 
-.field {
-  @apply w-full rounded-md border border-line bg-card px-3 py-2 text-[14px] text-ink outline-none transition;
-}
-.field:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(29, 27, 24, .08); }
-.field:disabled { background: var(--sunk); color: var(--muted); }
-select.field { appearance: none; padding-right: 2rem; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23857d71' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .7rem center; }
+/* en la capa de componentes: así las clases de ajuste (pl-9, text-right…) les ganan */
+@layer components {
+  .field {
+    @apply w-full rounded-md border border-line bg-card px-3 py-2 text-[14px] text-ink outline-none transition;
+  }
+  .field:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(29, 27, 24, .08); }
+  .field:disabled { background: var(--sunk); color: var(--muted); }
+  select.field { appearance: none; padding-right: 2rem; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23857d71' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right .7rem center; }
 
-.tbl { width: 100%; border-collapse: collapse; }
-.tbl th { @apply text-left font-semibold text-muted border-b border-line px-3 py-2.5 whitespace-nowrap; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
-.tbl td { @apply border-b border-line px-3 py-2.5 align-middle; }
-.tbl tbody tr { transition: background .12s; }
-.tbl tbody tr:hover { background: rgba(236, 230, 219, .55); }
-.tbl tbody tr:last-child td { border-bottom: 0; }
+  .tbl { width: 100%; border-collapse: collapse; }
+  .tbl th { @apply text-left font-semibold text-muted border-b border-line px-3 py-2.5 whitespace-nowrap; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  .tbl td { @apply border-b border-line px-3 py-2.5 align-middle; }
+  .tbl tbody tr { transition: background .12s; }
+  .tbl tbody tr:hover { background: rgba(236, 230, 219, .55); }
+  .tbl tbody tr:last-child td { border-bottom: 0; }
+}
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .rise { animation: rise .45s cubic-bezier(.2, .7, .2, 1) both; }

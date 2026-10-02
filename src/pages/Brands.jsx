@@ -159,7 +159,7 @@ function MajaBillingModal({ onClose }) {
   const [form, setForm] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const f = form ?? (data ? { token: '', sucursal: data.sucursal, env: data.env } : null);
+  const f = form ?? (data ? { token: '', sucursal: data.sucursal, env: data.env, iva_mode: data.iva_mode } : null);
   const set = (k) => (e) => setForm({ ...f, [k]: e.target.value });
 
   const save = async () => {
@@ -178,7 +178,7 @@ function MajaBillingModal({ onClose }) {
       {loading || !f ? null : (
         <div className="space-y-4">
           <p className="text-[13px] text-ink2">
-            Es la cuenta de Biller de MAJA. Se usa para las marcas que facturan <b>por cuenta ajena</b>: MAJA emite el comprobante y la marca figura como mandante.
+            Es la cuenta de Biller de MAJA. Se usa para las marcas que facturan <b>por cuenta ajena</b> (MAJA emite el comprobante y la marca figura como mandante) y para la factura de comisión y cuota que MAJA le hace a cada marca.
           </p>
           <Field label="Token de Biller" hint={data.has_token ? 'Ya hay un token guardado; dejalo vacío para no cambiarlo' : 'Se genera en biller.uy/api/tokens'}>
             <Input type="password" value={f.token} onChange={set('token')} autoComplete="off" placeholder={data.has_token ? '••••••••' : ''} />
@@ -187,6 +187,13 @@ function MajaBillingModal({ onClose }) {
             <Field label="ID de sucursal" hint="Ajustes → Sucursales"><Input value={f.sucursal} onChange={set('sucursal')} /></Field>
             <Field label="Ambiente"><Select value={f.env} onChange={set('env')}><option value="produccion">Producción</option><option value="test">Pruebas</option></Select></Field>
           </div>
+          <Field label="IVA de MAJA" hint="Para la factura de comisión y cuota que MAJA le hace a cada marca">
+            <Select value={f.iva_mode} onChange={set('iva_mode')}>
+              <option value="basica">Régimen general · tasa básica 22 %</option>
+              <option value="minimo">Literal E / IVA mínimo</option>
+              <option value="exento">Exento</option>
+            </Select>
+          </Field>
           <ErrorNote>{error}</ErrorNote>
         </div>
       )}

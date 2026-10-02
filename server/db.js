@@ -242,6 +242,96 @@ CREATE INDEX IF NOT EXISTS ix_card_txns_date ON card_txns(date);
 CREATE INDEX IF NOT EXISTS ix_card_txns_sale ON card_txns(sale_id);
 `);
 
+// ---------- historial de cambios ----------
+db.exec(`CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER REFERENCES users(id),
+  user_name TEXT, role TEXT,
+  action TEXT NOT NULL,                -- ej. precio, ajuste_stock, anulacion, pago…
+  entity TEXT, entity_id INTEGER, brand_id INTEGER,
+  summary TEXT NOT NULL,
+  detail TEXT,                         -- JSON con antes/después
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS ix_audit_created ON audit_log(created_at);`);
+
+// ---------- tarjetas: n° de autorización del voucher y monto cobrado ----------
+ensureColumn('sales', 'authorization', 'TEXT');
+// lo que efectivamente se cobró con ese medio (en un cambio puede ser solo la diferencia); NULL = el total
+ensureColumn('sales', 'charged', 'REAL');
+ensureColumn('sales', 'exchange_id', 'INTEGER');
+
+// ---------- caja diaria ----------
+db.exec(`
+CREATE TABLE IF NOT EXISTS cash_sessions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  date TEXT NOT NULL UNIQUE,
+  opening_float REAL NOT NULL DEFAULT 0,
+  opened_by INTEGER REFERENCES users(id),
+  opened_at TEXT NOT NULL DEFAULT (datetime('now')),
+  counted_cash REAL, expected_cash REAL, difference REAL,
+  card_summary TEXT,                   -- JSON: lo anotado con tarjeta por POS
+  notes TEXT,
+  closed_by INTEGER REFERENCES users(id),
+  closed_at TEXT,
+  status TEXT NOT NULL DEFAULT 'abierta' CHECK (status IN ('abierta','cerrada'))
+);
+CREATE TABLE IF NOT EXISTS cash_movements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES cash_sessions(id),
+  kind TEXT NOT NULL CHECK (kind IN ('ingreso','retiro')),
+  amount REAL NOT NULL,
+  reason TEXT NOT NULL,
+  user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`);
+
+// ---------- factura de MAJA a la marca por comisión + cuota ----------
+ensureColumn('settlements', 'invoice_status', 'TEXT');
+ensureColumn('settlements', 'invoice_number', 'TEXT');
+ensureColumn('settlements', 'invoice_error', 'TEXT');
+ensureColumn('settlements', 'cfe_id', 'TEXT');
+
+// ---------- conteo de inventario ----------
+db.exec(`
+CREATE TABLE IF NOT EXISTS stock_counts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  brand_id INTEGER REFERENCES brands(id),       -- NULL = toda la tienda
+  status TEXT NOT NULL DEFAULT 'abierto' CHECK (status IN ('abierto','aplicado','descartado')),
+  notes TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  applied_by INTEGER REFERENCES users(id),
+  applied_at TEXT
+);
+CREATE TABLE IF NOT EXISTS stock_count_lines (
+  count_id INTEGER NOT NULL REFERENCES stock_counts(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  counted INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (count_id, product_id)
+);`);
+
+// ---------- avisos ----------
+db.exec(`
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  audience TEXT NOT NULL CHECK (audience IN ('staff','owner','brand')),
+  brand_id INTEGER REFERENCES brands(id),
+  title TEXT NOT NULL, body TEXT, link TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS notification_reads (
+  notification_id INTEGER NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  PRIMARY KEY (notification_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  expires_at TEXT NOT NULL,
+  used_at TEXT
+);`);
+
 // objetivos de venta mensuales por marca
 db.exec(`CREATE TABLE IF NOT EXISTS sales_goals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

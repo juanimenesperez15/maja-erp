@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ChevronLeft, ChevronRight, CreditCard, Download, Landmark, Lock, LockOpen, Plus, Trash2 } from 'lucide-react';
-import { api } from '../lib/api.js';
+import { AlertTriangle, ChevronLeft, ChevronRight, CreditCard, Download, FileText, Landmark, Lock, LockOpen, MessageCircle, Plus, Printer, Trash2 } from 'lucide-react';
+import { api, getToken } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, Stat, useToast, cx, SETTLEMENT_BADGE } from '../components/ui.jsx';
 import { currentPeriod, downloadCSV, fmtDate, fmtDateTime, fmtInt, fmtMoney, fmtPct, fmtPeriod, fmtPeriodShort, parseNum, shiftPeriod, todayISO } from '../lib/format.js';
@@ -104,6 +104,84 @@ export default function Settlements() {
   );
 }
 
+const escH = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/** Resumen mensual para la marca, listo para "Guardar como PDF" desde el diálogo de impresión. */
+function printStatement(data, period) {
+  const s = data.settlement;
+  const m = (v) => escH(fmtMoney(v, true));
+  const row = (l, v, strong) => `<tr${strong ? ' class="t"' : ''}><td>${escH(l)}</td><td class="n">${v}</td></tr>`;
+  const w = window.open('', '_blank');
+  if (!w) return alert('El navegador bloqueó la ventana: permití las ventanas emergentes para esta página.');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Resumen ${escH(s.brand_name)} ${escH(period)}</title><style>
+    @page { size: A4; margin: 18mm 16mm }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1d1b18; font-size: 10.5pt; }
+    h1 { font-family: Georgia, serif; font-weight: normal; font-size: 26pt; margin: 0; }
+    .brand { font-family: Georgia, serif; font-size: 22pt; } .brand span { color: #7c2d23; }
+    .muted { color: #6f685e; } h2 { font-size: 9pt; letter-spacing: .14em; text-transform: uppercase; color: #6f685e; margin: 22px 0 6px; }
+    table { width: 100%; border-collapse: collapse; } td, th { padding: 6px 4px; border-bottom: 1px solid #e0d8ca; text-align: left; }
+    th { font-size: 8pt; letter-spacing: .08em; text-transform: uppercase; color: #6f685e; } .n { text-align: right; white-space: nowrap; }
+    tr.t td { font-weight: bold; border-top: 2px solid #1d1b18; font-size: 12pt; } header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; }
+  </style></head><body>
+    <header><div><div class="brand">MAJA<span>.</span></div><div class="muted">Multibrand</div></div>
+      <div style="text-align:right"><h1>${escH(s.brand_name)}</h1><div class="muted">Liquidación de ${escH(fmtPeriod(period))}${s.closed ? '' : ' (en curso)'}</div></div></header>
+    <h2>Resumen</h2>
+    <table>
+      ${row(`Vendido en el mes (${s.units} unidades)`, m(s.sales_total))}
+      ${row(`Comisión MAJA (${s.commission_pct} %)`, m(s.commission))}
+      ${row('Cuota mensual', m(s.fee))}
+      ${s.iva ? row('IVA 22 %', m(s.iva)) : ''}
+      ${row('Cobrado con tarjeta en el POS de MAJA (se descuenta)', `− ${m(s.card_credit)}`)}
+      ${row(s.total >= 0 ? 'Total a pagar a MAJA' : 'MAJA le debe a la marca', m(Math.abs(s.total)), true)}
+      ${row('Pagos registrados', m(Math.abs(s.paid)))}
+      ${row(s.balance > 0.009 ? 'Saldo a pagar' : s.balance < -0.009 ? 'Saldo a favor de la marca' : 'Saldo', m(Math.abs(s.balance)), true)}
+    </table>
+    ${s.invoice_number ? `<p class="muted">Factura de MAJA: ${escH(s.invoice_number)}</p>` : ''}
+    ${data.collections.length ? `<h2>Ventas de la marca cobradas en el POS de MAJA</h2><table><tr><th>Fecha</th><th>Tarjeta</th><th>Venta</th><th class="n">Importe</th><th class="n">Se descuenta</th></tr>
+      ${data.collections.map((c) => `<tr><td>${escH(fmtDateTime(`${c.txn_at.replace(' ', 'T')}:00-03:00`))}</td><td>${escH(c.network)} ···${escH(String(c.card || '').slice(-4))}</td><td>#${c.sale_id}</td><td class="n">${m(c.amount)}</td><td class="n">${m(c.credit)}</td></tr>`).join('')}</table>` : ''}
+    ${data.payments.length ? `<h2>Pagos</h2><table>${data.payments.map((p) => `<tr><td>${escH(fmtDate(p.paid_at))}</td><td>${p.amount < 0 ? 'MAJA pagó a la marca' : 'La marca pagó'}${p.method ? ` · ${escH(p.method)}` : ''}</td><td class="n">${m(Math.abs(p.amount))}</td></tr>`).join('')}</table>` : ''}
+    <h2>Qué se vendió</h2>
+    <table><tr><th>SKU</th><th>Artículo</th><th class="n">Unid.</th><th class="n">Importe</th></tr>
+      ${data.products.map((p) => `<tr><td>${escH(p.sku)}</td><td>${escH(p.description)}</td><td class="n">${p.units}</td><td class="n">${m(p.total)}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Sin ventas</td></tr>'}</table>
+    <p class="muted" style="margin-top:28px;font-size:8.5pt">Emitido el ${escH(new Date().toLocaleDateString('es-UY'))}. Lo cobrado en el POS de MAJA se toma de los reportes de Handy (lo que efectivamente se acreditó).</p>
+    <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+}
+
+/** Botones y estado de la factura de MAJA a la marca, el resumen y el aviso por WhatsApp. */
+function InvoiceBar({ s, data, period, brandId, isOwner, onChanged }) {
+  const { brands } = useSession();
+  const toast = useToast();
+  const [busy, setBusy] = useState('');
+  const brand = brands.find((b) => b.id === brandId);
+  const phone = String(brand?.phone || '').replace(/\D/g, '').replace(/^0/, '598');
+  const waText = encodeURIComponent(`Hola! Te paso la liquidación de MAJA de ${fmtPeriod(period)}: ${s.total >= 0 ? `total a pagar ${fmtMoney(s.total, true)}` : `MAJA te debe ${fmtMoney(-s.total, true)}`}${Math.abs(s.balance) > 0.009 ? ` · saldo ${fmtMoney(Math.abs(s.balance), true)}${s.balance < 0 ? ' a tu favor' : ''}` : ''}. El detalle lo ves en la app, en Comisiones y cuotas.`);
+  const pdf = async () => {
+    const res = await fetch(`/api/settlements/invoice-pdf?brand_id=${brandId}&period=${period}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+    if (!res.ok) return toast((await res.json().catch(() => ({}))).error || 'No se pudo bajar la factura', 'bad');
+    window.open(URL.createObjectURL(await res.blob()), '_blank');
+  };
+  const run = async (key, fn, msg) => { setBusy(key); try { await fn(); toast(msg); onChanged(); } catch (e) { toast(e.message, 'bad'); } finally { setBusy(''); } };
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-[13px]">
+      <FileText size={15} className="text-muted" />
+      {s.invoice_number ? (
+        <span>Factura de MAJA: <b>{s.invoice_number}</b>{s.has_invoice_pdf && <button onClick={pdf} className="ml-2 underline decoration-line underline-offset-2 hover:decoration-ink">PDF</button>}</span>
+      ) : s.closed ? (
+        isOwner ? <>
+          <span className="text-ink2">{s.invoice_status === 'error' ? <span className="text-bad">Biller no la emitió: {s.invoice_error}</span> : 'Sin facturar'}</span>
+          <Button size="sm" variant="outline" loading={busy === 'inv'} onClick={() => run('inv', () => api('/settlements/invoice', { method: 'POST', body: { brand_id: brandId, period } }), 'Factura emitida')}>Facturar con Biller</Button>
+          <Button size="sm" variant="ghost" onClick={() => { const n = window.prompt('N° de la factura que le hiciste a la marca'); if (n) run('man', () => api('/settlements/invoice-manual', { method: 'POST', body: { brand_id: brandId, period, invoice_number: n } }), 'Factura anotada'); }}>Anotar n° a mano</Button>
+        </> : <span className="text-muted">MAJA todavía no emitió la factura de este mes.</span>
+      ) : <span className="text-muted">{isOwner ? 'Cerrá el mes para facturarle a la marca la comisión y la cuota.' : 'El mes está en curso.'}</span>}
+      <span className="ml-auto flex gap-2">
+        <Button size="sm" variant="outline" onClick={() => printStatement(data, period)}><Printer size={14} />Resumen PDF</Button>
+        {isOwner && phone.length >= 8 && <a href={`https://wa.me/${phone}?text=${waText}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-line bg-card px-3 text-[13px] hover:border-ink/40"><MessageCircle size={14} />WhatsApp</a>}
+      </span>
+    </div>
+  );
+}
+
 function DetailModal({ brand_id, period, isAdmin, onClose, onChanged }) {
   const toast = useToast();
   const { isOwner } = useSession();
@@ -155,6 +233,7 @@ function DetailModal({ brand_id, period, isAdmin, onClose, onChanged }) {
             <Badge tone={SETTLEMENT_BADGE[s.status][0]}>{SETTLEMENT_BADGE[s.status][1]}</Badge>
             {s.closed ? <Badge><Lock size={11} />Cerrada</Badge> : <Badge tone="warn">Abierta · se recalcula</Badge>}
           </div>
+          <InvoiceBar s={s} data={data} period={period} brandId={brand_id} isOwner={isOwner} onChanged={() => { reload(); onChanged(); }} />
           {s.card_credit_changed && (
             <div className="flex items-start gap-2 rounded-lg bg-warn-soft px-3 py-2 text-[13px] text-warn">
               <AlertTriangle size={15} className="mt-0.5 shrink-0" />
