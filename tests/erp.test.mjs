@@ -205,3 +205,15 @@ test('contraseña: link de un solo uso', async () => {
   assert.equal((await call('POST', '/auth/reset', { token, password: 'otra-clave-a' })).status, 400);
   assert.ok((await ok('POST', '/auth/login', { email: 'a@maja.test', password: 'nueva-clave-a' })).token);
 });
+
+test('la dueña cambia la contraseña de quien se la olvidó y la obliga a elegir otra', async () => {
+  const users = await ok('GET', '/users', null, T.owner);
+  const v = users.find((x) => x.email === 'vende@maja.test');
+  assert.equal((await call('POST', `/users/${v.id}/password`, { password: 'provisoria1' }, T.seller)).status, 403, 'solo la dueña');
+  await ok('POST', `/users/${v.id}/password`, { password: 'provisoria1' }, T.owner);
+  const login = await ok('POST', '/auth/login', { email: 'vende@maja.test', password: 'provisoria1' });
+  assert.equal(login.user.must_change_password, true, 'al entrar tiene que elegir una propia');
+  await ok('POST', '/auth/password', { current: 'provisoria1', next: 'propia-de-ella' }, login.token);
+  assert.equal((await ok('GET', '/auth/me', null, login.token)).user.must_change_password, false);
+  assert.ok((await ok('GET', '/audit', null, T.owner)).rows.some((r) => r.summary.includes('Cambió la contraseña de vende@maja.test')));
+});

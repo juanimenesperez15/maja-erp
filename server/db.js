@@ -332,6 +332,10 @@ CREATE TABLE IF NOT EXISTS password_resets (
   used_at TEXT
 );`);
 
+// va después de rehacer la tabla users (si no, la migración la pierde)
+// la dueña le puso una contraseña provisoria: al entrar tiene que elegir una propia
+ensureColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+
 // objetivos de venta mensuales por marca
 db.exec(`CREATE TABLE IF NOT EXISTS sales_goals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

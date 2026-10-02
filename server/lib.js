@@ -46,7 +46,7 @@ function readToken(token) {
 export function publicUser(u) {
   if (!u) return null;
   const brand = u.brand_id ? db.prepare('SELECT id, name FROM brands WHERE id = ?').get(u.brand_id) : null;
-  return { id: u.id, email: u.email, name: u.name, role: u.role, brand_id: u.brand_id, brand_name: brand?.name ?? null, active: !!u.active, last_login_at: u.last_login_at, ...(u.preview ? { preview: true } : {}) };
+  return { id: u.id, email: u.email, name: u.name, role: u.role, brand_id: u.brand_id, brand_name: brand?.name ?? null, active: !!u.active, last_login_at: u.last_login_at, must_change_password: !!u.must_change_password && !u.preview, ...(u.preview ? { preview: true } : {}) };
 }
 
 export function auth(req, _res, next) {

@@ -10,7 +10,7 @@ import Sales from './pages/Sales.jsx';
 import Settlements from './pages/Settlements.jsx';
 import Brands from './pages/Brands.jsx';
 import UsersPage from './pages/Users.jsx';
-import Account from './pages/Account.jsx';
+import Account, { ForcePassword } from './pages/Account.jsx';
 import Goals from './pages/Goals.jsx';
 import Cards from './pages/Cards.jsx';
 import Cash from './pages/Cash.jsx';
@@ -23,6 +23,7 @@ export default function App() {
   if (loading) return <Loading />;
   // el link para cambiar la contraseña se abre aunque haya una sesión abierta
   if (!user || new URLSearchParams(window.location.search).has('reset')) return <Login />;
+  if (user.must_change_password) return <ForcePassword />;
   return (
     <Routes>
       <Route element={<Layout />}>

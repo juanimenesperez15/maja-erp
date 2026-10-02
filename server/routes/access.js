@@ -49,7 +49,7 @@ accessRouter.post('/auth/password', auth, (req, res) => {
   const { current, next } = req.body;
   if (!checkPassword(current || '', req.user.password_hash)) throw bad('La contraseña actual no es correcta');
   if (String(next || '').length < 8) throw bad('La nueva contraseña tiene que tener al menos 8 caracteres');
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(next), req.user.id);
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashPassword(next), req.user.id);
   res.json({ ok: true });
 });
 
@@ -163,6 +163,17 @@ accessRouter.put('/users/:id', auth, adminOnly, (req, res) => {
   if (req.body.password) db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(req.body.password), id);
   const uchg = [current.role !== u.role && `rol ${current.role} → ${u.role}`, !!current.active !== !!u.active && (u.active ? 'activado' : 'desactivado'), req.body.password && 'cambió la contraseña'].filter(Boolean);
   if (uchg.length) audit(req, 'usuario', { entity: 'usuario', entityId: id, summary: `Usuario ${u.email}: ${uchg.join(', ')}` });
+  res.json({ ok: true });
+});
+
+// la dueña le cambia la contraseña a quien se la olvidó (y opcionalmente lo obliga a elegir otra al entrar)
+accessRouter.post('/users/:id/password', auth, adminOnly, (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(req.params.id));
+  if (!user) throw notFound('Usuario inexistente');
+  if (String(req.body.password || '').length < 8) throw bad('La contraseña tiene que tener al menos 8 caracteres');
+  const mustChange = req.body.must_change === false || user.id === req.user.id ? 0 : 1;
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?').run(hashPassword(req.body.password), mustChange, user.id);
+  audit(req, 'usuario', { entity: 'usuario', entityId: user.id, summary: `Cambió la contraseña de ${user.email}${mustChange ? ' (tiene que elegir otra al entrar)' : ''}` });
   res.json({ ok: true });
 });
 

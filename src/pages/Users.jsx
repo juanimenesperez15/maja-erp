@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Users as UsersIcon, Pencil } from 'lucide-react';
+import { Plus, Users as UsersIcon, Pencil, KeyRound } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, useToast } from '../components/ui.jsx';
@@ -11,6 +11,7 @@ export default function UsersPage() {
   const { data, loading, reload } = useApi('/users');
   const { user: me } = useSession();
   const [editing, setEditing] = useState(null);
+  const [pwUser, setPwUser] = useState(null);
 
   return (
     <>
@@ -29,9 +30,9 @@ export default function UsersPage() {
                   <tr key={u.id} className={u.active ? '' : 'opacity-50'}>
                     <td className="font-medium">{u.name}{u.id === me.id && <span className="ml-1.5 text-[12px] text-muted">(vos)</span>}</td>
                     <td className="text-ink2">{u.email}</td>
-                    <td>{u.role === 'admin' ? <Badge tone="ink">Dueña · MAJA</Badge> : u.role === 'vendedora' ? <Badge tone="ok">Vendedora · MAJA</Badge> : <Badge tone="accent">{u.brand_name}</Badge>}{!u.active && <span className="ml-1.5"><Badge tone="bad">Inactivo</Badge></span>}</td>
+                    <td>{u.role === 'admin' ? <Badge tone="ink">Dueña · MAJA</Badge> : u.role === 'vendedora' ? <Badge tone="ok">Vendedora · MAJA</Badge> : <Badge tone="accent">{u.brand_name}</Badge>}{!u.active && <span className="ml-1.5"><Badge tone="bad">Inactivo</Badge></span>}{u.must_change_password && <span className="ml-1.5"><Badge tone="warn">Contraseña provisoria</Badge></span>}</td>
                     <td className="text-[13px] text-muted">{u.last_login_at ? fmtDateTime(u.last_login_at) : 'Nunca'}</td>
-                    <td className="text-right"><button onClick={() => setEditing({ ...EMPTY, ...u, brand_id: u.brand_id ?? '', password: '' })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink" aria-label="Editar"><Pencil size={15} /></button></td>
+                    <td className="whitespace-nowrap text-right"><button title="Cambiar contraseña" onClick={() => setPwUser(u)} className="mr-1 inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12px] text-ink2 hover:bg-sunk hover:text-ink"><KeyRound size={14} />Contraseña</button><button onClick={() => setEditing({ ...EMPTY, ...u, brand_id: u.brand_id ?? '', password: '' })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink" aria-label="Editar"><Pencil size={15} /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -40,6 +41,7 @@ export default function UsersPage() {
         )}
       </Card>
       <PermissionTable />
+      {pwUser && <PasswordModal user={pwUser} onClose={() => { setPwUser(null); reload(); }} />}
       {editing && <UserModal user={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
     </>
   );
@@ -105,6 +107,67 @@ function ResetLink({ userId }) {
         <span className="text-muted">Vence en 48 h y sirve una sola vez.</span>
       </div>
     </div>
+  );
+}
+
+// contraseña provisoria fácil de dictar o copiar (sin letras que se confunden: l, 1, O, 0)
+function randomPassword() {
+  const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+  const a = new Uint32Array(10);
+  crypto.getRandomValues(a);
+  return [...a].map((n) => chars[n % chars.length]).join('');
+}
+
+/** La dueña le pone una contraseña nueva a quien se la olvidó. */
+function PasswordModal({ user, onClose }) {
+  const toast = useToast();
+  const { user: me } = useSession();
+  const self = user.id === me.id;
+  const [pw, setPw] = useState(randomPassword());
+  const [mustChange, setMustChange] = useState(!self);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/users/${user.id}/password`, { method: 'POST', body: { password: pw, must_change: mustChange } });
+      setDone(true);
+      toast('Contraseña cambiada');
+    } catch (e) { setError(e.message); } finally { setBusy(false); }
+  };
+  const msg = `Tu contraseña para entrar a MAJA (${user.email}) es: ${pw}${mustChange ? '\nAl entrar te va a pedir que elijas una propia.' : ''}`;
+  return (
+    <Modal open title="Cambiar contraseña" onClose={onClose}
+      footer={done
+        ? <Button onClick={onClose}>Listo</Button>
+        : <><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button onClick={save} loading={busy} disabled={pw.length < 8}>Guardar contraseña</Button></>}>
+      <div className="space-y-4">
+        <p className="text-[13px] text-ink2"><b>{user.name}</b> · {user.email}</p>
+        {done ? (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-ok-soft px-4 py-3 text-[14px] text-ok">Listo. La contraseña nueva es <b className="font-mono text-[16px] text-ink">{pw}</b></div>
+            <div className="flex gap-3 text-[13px]">
+              <button type="button" className="font-semibold underline" onClick={() => { navigator.clipboard?.writeText(msg); toast('Mensaje copiado'); }}>Copiar mensaje</button>
+              <a className="font-semibold underline" href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer">Mandar por WhatsApp</a>
+            </div>
+          </div>
+        ) : <>
+          <Field label="Contraseña nueva" hint="Mínimo 8 caracteres. Te propongo una al azar; podés escribir otra.">
+            <div className="flex gap-2">
+              <Input className="font-mono" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="off" spellCheck={false} />
+              <Button type="button" variant="outline" onClick={() => setPw(randomPassword())}>Otra</Button>
+            </div>
+          </Field>
+          {!self && <label className="flex items-start gap-2 text-[13px]">
+            <input type="checkbox" checked={mustChange} onChange={(e) => setMustChange(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#1d1b18]" />
+            <span>Que elija una propia la próxima vez que entre<span className="block text-[12px] text-muted">Así vos no conocés su contraseña definitiva.</span></span>
+          </label>}
+          <ErrorNote>{error}</ErrorNote>
+        </>}
+      </div>
+    </Modal>
   );
 }
 

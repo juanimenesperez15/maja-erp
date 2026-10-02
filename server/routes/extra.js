@@ -78,7 +78,7 @@ extraRouter.post('/auth/reset', (req, res) => {
   const row = db.prepare('SELECT * FROM password_resets WHERE token_hash = ?').get(hashTok(String(req.body.token || '')));
   if (!row || row.used_at || row.expires_at < new Date().toISOString()) throw new HttpError(400, 'El link venció o ya se usó. Pedí uno nuevo.');
   if (String(req.body.password || '').length < 8) throw bad('La contraseña tiene que tener al menos 8 caracteres');
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(req.body.password), row.user_id);
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashPassword(req.body.password), row.user_id);
   db.prepare("UPDATE password_resets SET used_at = datetime('now') WHERE token_hash = ?").run(row.token_hash);
   res.json({ ok: true });
 });
