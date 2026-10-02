@@ -3,9 +3,10 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Boxes, Truck, ShoppingBag, Receipt, Landmark, Store, Users, LogOut, Menu, X, KeyRound, Target, CreditCard } from 'lucide-react';
 import { useSession } from '../lib/session.jsx';
 import { cx } from './ui.jsx';
+import { PreviewBanner, ViewSelect } from './ViewSwitcher.jsx';
 
 export default function Layout() {
-  const { user, isAdmin, isOwner, isSeller, brands, brandId, setBrandFilter, logout } = useSession();
+  const { user, isAdmin, isOwner, isSeller, isPreview, endPreview, brands, brandId, setBrandFilter, logout } = useSession();
   const [open, setOpen] = useState(false);
   const loc = useLocation();
 
@@ -54,19 +55,23 @@ export default function Layout() {
         <div className="border-t border-paper/10 p-4">
           <div className="text-[13px] font-medium">{user.name}</div>
           <div className="truncate text-[12px] text-paper/45">{isOwner ? 'Dueña · MAJA' : isSeller ? 'Vendedora · MAJA' : user.brand_name}</div>
+          {isOwner && !isPreview && <div className="mt-3 md:hidden"><ViewSelect className="text-paper/70" /></div>}
           <div className="mt-3 flex gap-1">
-            <NavLink to="/cuenta" onClick={() => setOpen(false)} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-paper/55 hover:bg-paper/5 hover:text-paper"><KeyRound size={13} />Contraseña</NavLink>
-            <button onClick={logout} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-paper/55 hover:bg-paper/5 hover:text-paper"><LogOut size={13} />Salir</button>
+            {!isPreview && <NavLink to="/cuenta" onClick={() => setOpen(false)} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-paper/55 hover:bg-paper/5 hover:text-paper"><KeyRound size={13} />Contraseña</NavLink>}
+            <button onClick={isPreview ? endPreview : logout} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-paper/55 hover:bg-paper/5 hover:text-paper"><LogOut size={13} />{isPreview ? 'Salir de la vista' : 'Salir'}</button>
           </div>
         </div>
       </aside>
       {open && <div className="fade fixed inset-0 z-30 bg-ink/40 lg:hidden" onClick={() => setOpen(false)} />}
 
       <div className="flex min-w-0 flex-1 flex-col lg:pl-[248px]">
-        <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-paper/85 px-4 backdrop-blur md:px-8">
+        <div className="sticky top-0 z-20">
+        <PreviewBanner />
+        <header className="flex h-14 items-center gap-3 border-b border-line bg-paper/85 px-4 backdrop-blur md:px-8">
           <button className="rounded-md p-1.5 hover:bg-sunk lg:hidden" onClick={() => setOpen(!open)} aria-label="Menú">{open ? <X size={20} /> : <Menu size={20} />}</button>
           <div className="font-display text-[22px] lg:hidden">MAJA</div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-3">
+            {isOwner && !isPreview && <ViewSelect className="hidden text-muted md:flex" />}
             {isAdmin ? (
               !['/marcas', '/usuarios', '/cuenta', '/objetivos', '/tarjetas'].includes(loc.pathname) && !(isSeller && loc.pathname === '/') && (
                 <label className="flex items-center gap-2">
@@ -82,6 +87,7 @@ export default function Layout() {
             )}
           </div>
         </header>
+        </div>
         <main className="mx-auto w-full max-w-[1280px] flex-1 px-4 py-8 md:px-8">
           <Outlet />
         </main>

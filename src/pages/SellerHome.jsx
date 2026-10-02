@@ -44,7 +44,7 @@ export default function SellerHome() {
 
   return (
     <>
-      <PageHeader eyebrow={`Hola, ${user.name.split(' ')[0]}`} title={<span className="capitalize">Hoy, {fmtDate(data.date)}</span>}>
+      <PageHeader eyebrow={user.preview ? 'Tablero de la vendedora' : `Hola, ${user.name.split(' ')[0]}`} title={<span className="capitalize">Hoy, {fmtDate(data.date)}</span>}>
         <Link to="/ventas"><Button><Plus size={16} />Registrar venta</Button></Link>
       </PageHeader>
 

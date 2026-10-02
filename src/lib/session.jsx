@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { api, getToken, setToken, setUnauthorizedHandler } from './api.js';
+import { api, getOwnerToken, getToken, setOwnerToken, setToken, setUnauthorizedHandler } from './api.js';
 
 const SessionCtx = createContext(null);
 const BRAND_KEY = 'maja_brand_filter';
@@ -11,6 +11,7 @@ export function SessionProvider({ children }) {
 
   const logout = useCallback(() => {
     setToken(null);
+    setOwnerToken(null);
     setBrands(null);
     setState({ loading: false, needsSetup: false, user: null });
   }, []);
@@ -43,6 +44,22 @@ export function SessionProvider({ children }) {
     setState({ loading: false, needsSetup: false, user });
   };
 
+  // "Ver como": la dueña mira la app como una vendedora o una marca (solo lectura)
+  const startPreview = async (role, brandId) => {
+    const owner = getOwnerToken() || getToken();
+    const r = await api('/auth/preview', { method: 'POST', body: { role, brand_id: brandId }, token: owner });
+    setOwnerToken(owner);
+    setToken(r.token);
+    window.location.assign('/');
+  };
+  const endPreview = () => {
+    const owner = getOwnerToken();
+    if (!owner) return logout();
+    setOwnerToken(null);
+    setToken(owner);
+    window.location.assign('/');
+  };
+
   const setBrandFilter = (v) => {
     setBrandFilterState(v);
     try { localStorage.setItem(BRAND_KEY, v); } catch { /* sin storage */ }
@@ -57,7 +74,7 @@ export function SessionProvider({ children }) {
   const brandId = isAdmin ? ((brands || []).some((b) => String(b.id) === String(brandFilter)) ? brandFilter : '') : String(state.user?.brand_id ?? '');
 
   return (
-    <SessionCtx.Provider value={{ ...state, isAdmin, isOwner, isSeller, brands: brands || [], brandsLoaded: brands !== null, refreshBrands, brandId, setBrandFilter, signIn, logout }}>
+    <SessionCtx.Provider value={{ ...state, isAdmin, isOwner, isSeller, isPreview: !!state.user?.preview, startPreview, endPreview, brands: brands || [], brandsLoaded: brands !== null, refreshBrands, brandId, setBrandFilter, signIn, logout }}>
       {children}
     </SessionCtx.Provider>
   );

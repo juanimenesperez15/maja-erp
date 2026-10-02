@@ -27,8 +27,10 @@ export function checkPassword(pw, stored) {
   const ref = Buffer.from(hash, 'hex');
   return ref.length === test.length && crypto.timingSafeEqual(ref, test);
 }
-export function signToken(userId) {
-  const payload = Buffer.from(JSON.stringify({ uid: userId, exp: Date.now() + TOKEN_DAYS * 864e5 })).toString('base64url');
+/** as = { role, brand_id }: vista previa de la dueña (ver la app como una vendedora o una marca). */
+export function signToken(userId, as = null) {
+  const exp = Date.now() + (as ? 12 * 3600e3 : TOKEN_DAYS * 864e5);
+  const payload = Buffer.from(JSON.stringify({ uid: userId, exp, ...(as ? { as } : {}) })).toString('base64url');
   const sig = crypto.createHmac('sha256', secret()).update(payload).digest('base64url');
   return `${payload}.${sig}`;
 }
@@ -44,7 +46,7 @@ function readToken(token) {
 export function publicUser(u) {
   if (!u) return null;
   const brand = u.brand_id ? db.prepare('SELECT id, name FROM brands WHERE id = ?').get(u.brand_id) : null;
-  return { id: u.id, email: u.email, name: u.name, role: u.role, brand_id: u.brand_id, brand_name: brand?.name ?? null, active: !!u.active, last_login_at: u.last_login_at };
+  return { id: u.id, email: u.email, name: u.name, role: u.role, brand_id: u.brand_id, brand_name: brand?.name ?? null, active: !!u.active, last_login_at: u.last_login_at, ...(u.preview ? { preview: true } : {}) };
 }
 
 export function auth(req, _res, next) {
@@ -56,6 +58,17 @@ export function auth(req, _res, next) {
   if (user.role === 'marca') {
     const brand = db.prepare('SELECT active FROM brands WHERE id = ?').get(user.brand_id);
     if (!brand?.active) return next(new HttpError(401, 'La marca está inactiva'));
+  }
+  if (data.as) {
+    // vista previa: solo la dueña la pide, y mientras dura no se puede modificar nada
+    if (user.role !== 'admin') return next(new HttpError(401, 'Vista previa inválida'));
+    if (data.as.role === 'marca' && !db.prepare('SELECT 1 FROM brands WHERE id = ?').get(data.as.brand_id)) return next(new HttpError(401, 'La marca ya no existe'));
+    if (req.method !== 'GET') return next(new HttpError(403, 'Vista previa: solo lectura. Volvé a tu vista para hacer cambios.'));
+    req.user = {
+      ...user, role: data.as.role, brand_id: data.as.role === 'marca' ? data.as.brand_id : null, preview: true,
+      name: data.as.role === 'vendedora' ? 'Vista de vendedora' : `Vista de ${db.prepare('SELECT name FROM brands WHERE id = ?').get(data.as.brand_id)?.name}`,
+    };
+    return next();
   }
   req.user = user;
   next();

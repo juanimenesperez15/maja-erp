@@ -33,6 +33,17 @@ accessRouter.post('/auth/login', (req, res) => {
 
 accessRouter.get('/auth/me', auth, (req, res) => res.json({ user: publicUser(req.user) }));
 
+// la dueña pide ver la app como la ve una vendedora o una marca (solo lectura)
+accessRouter.post('/auth/preview', auth, adminOnly, (req, res) => {
+  const role = req.body.role;
+  if (!['vendedora', 'marca'].includes(role)) throw bad('Vista inválida');
+  const brandId = role === 'marca' ? Number(req.body.brand_id) : null;
+  if (role === 'marca' && !db.prepare('SELECT 1 FROM brands WHERE id = ?').get(brandId)) throw bad('Elegí la marca');
+  const token = signToken(req.user.id, { role, brand_id: brandId });
+  const brand = brandId ? db.prepare('SELECT name FROM brands WHERE id = ?').get(brandId) : null;
+  res.json({ token, user: { id: req.user.id, email: req.user.email, name: role === 'vendedora' ? 'Vista de vendedora' : `Vista de ${brand.name}`, role, brand_id: brandId, brand_name: brand?.name ?? null, active: true, preview: true } });
+});
+
 accessRouter.post('/auth/password', auth, (req, res) => {
   const { current, next } = req.body;
   if (!checkPassword(current || '', req.user.password_hash)) throw bad('La contraseña actual no es correcta');
