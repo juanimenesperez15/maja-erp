@@ -65,7 +65,7 @@ export function parseTable(text) {
     return out.map((s) => s.trim());
   };
   const norm = (h) => h.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-  const ALIAS = { sku: 'sku', codigo: 'sku', code: 'sku', nombre: 'name', name: 'name', producto: 'name', articulo: 'name', descripcion: 'name', variante: 'variant', variant: 'variant', talle: 'variant', precio: 'price', price: 'price', pvp: 'price', stock: 'stock', cantidad: 'stock' };
+  const ALIAS = { sku: 'sku', codigo: 'sku', code: 'sku', nombre: 'name', name: 'name', producto: 'name', articulo: 'name', descripcion: 'name', variante: 'variant', variant: 'variant', talle: 'variant', precio: 'price', price: 'price', pvp: 'price', stock: 'stock', cantidad: 'stock', unidades: 'stock', cant: 'stock', qty: 'stock', 'codigo de barras': 'barcode', 'cod barras': 'barcode', 'codigo barras': 'barcode', ean: 'barcode', barcode: 'barcode' };
   const headers = split(first).map((h) => ALIAS[norm(h)] || norm(h));
   return lines.slice(1).map((l) => Object.fromEntries(split(l).map((v, i) => [headers[i], v])));
 }

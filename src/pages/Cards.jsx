@@ -94,7 +94,7 @@ export default function Cards() {
         <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pb-2 pt-5">
           <div>
             <div className="eyebrow">POS</div>
-            <div className="mt-1 text-[13px] text-muted">De quién es cada terminal que aparece en los reportes. Subí el reporte de cada POS (el de MAJA y el de cada marca).</div>
+            <div className="mt-1 text-[13px] text-muted">De quién es cada terminal que aparece en los reportes. Alcanza con el reporte del POS de MAJA; si alguna marca te pasa el de su POS, también sirve.</div>
           </div>
           {unassigned > 0 && <Badge tone="warn">{unassigned} sin asignar</Badge>}
         </div>
@@ -143,22 +143,23 @@ export default function Cards() {
             <Stat label="Cobros con tarjeta" value={fmtInt(txns.length)} sub={fmtMoney(txns.reduce((a, t) => a + (t.currency === 'UYU' ? t.amount : 0), 0))} />
             <Stat label="Conciliados" value={fmtInt(counts.ok)} delay={50} />
             <Stat label="Para revisar" value={fmtInt(counts.revisar)} tone={counts.revisar ? 'accent' : undefined} delay={100} />
-            <Stat label="Ventas con tarjeta sin cobro" value={fmtInt(data.unpaid.length)} sub="no aparecen en los reportes" delay={150} />
+            <Stat label="Anotadas en POS de MAJA sin cobro" value={fmtInt(data.unpaid.length)} sub="no están en su reporte" delay={150} />
           </div>
 
           {data.by_brand.length > 0 && (
             <Card className="rise mb-6 overflow-hidden">
-              <div className="px-5 pb-2 pt-5"><div className="eyebrow">Dónde entró la plata de cada marca</div></div>
+              <div className="px-5 pb-2 pt-5"><div className="eyebrow">{data.coverage.brand_pos.length ? 'Dónde entró la plata de cada marca' : 'Ventas de cada marca cobradas en el POS de MAJA'}</div></div>
               <div className="overflow-x-auto">
                 <table className="tbl">
-                  <thead><tr><th>Marca</th><th className="text-right">En su POS</th><th className="text-right">En el POS de MAJA</th><th className="text-right">En el POS de otra marca</th></tr></thead>
+                  <thead><tr><th>Marca</th>{data.coverage.brand_pos.length > 0 && <th className="text-right">En su POS</th>}<th className="text-right">{data.coverage.brand_pos.length ? 'En el POS de MAJA' : 'Cobros'}</th>{!data.coverage.brand_pos.length && <th className="text-right">Importe</th>}{data.coverage.brand_pos.length > 0 && <th className="text-right">En el POS de otra marca</th>}</tr></thead>
                   <tbody>
                     {data.by_brand.map((b) => (
                       <tr key={b.brand_id}>
                         <td className="font-medium">{b.brand_name}</td>
-                        <td className="num text-right">{fmtMoney(b.own)}</td>
+                        {data.coverage.brand_pos.length > 0 && <td className="num text-right">{fmtMoney(b.own)}</td>}
+                        {!data.coverage.brand_pos.length && <td className="num text-right">{fmtInt(b.count)}</td>}
                         <td className={cx('num text-right', b.maja > 0 && 'font-semibold text-accent')}>{fmtMoney(b.maja)}</td>
-                        <td className={cx('num text-right', b.other > 0 && 'font-semibold text-bad')}>{fmtMoney(b.other)}</td>
+                        {data.coverage.brand_pos.length > 0 && <td className={cx('num text-right', b.other > 0 && 'font-semibold text-bad')}>{fmtMoney(b.other)}</td>}
                       </tr>
                     ))}
                   </tbody>
@@ -169,7 +170,7 @@ export default function Cards() {
           )}
 
           <div className="mb-4">
-            <Tabs value={tab} onChange={setTab} options={[{ value: 'revisar', label: 'Para revisar', count: counts.revisar }, { value: 'ok', label: 'Conciliados', count: counts.ok }, { value: 'sin_cobro', label: 'Ventas sin cobro', count: data.unpaid.length }, { value: 'todos', label: 'Todos' }]} />
+            <Tabs value={tab} onChange={setTab} options={[{ value: 'revisar', label: 'Para revisar', count: counts.revisar }, { value: 'ok', label: 'Conciliados', count: counts.ok }, { value: 'sin_cobro', label: 'Anotadas en MAJA sin cobro', count: data.unpaid.length }, { value: 'todos', label: 'Todos' }]} />
           </div>
 
           {tab === 'sin_cobro' ? <Unpaid rows={data.unpaid} /> : (
@@ -333,7 +334,7 @@ function TxnRow({ t, busy, act }) {
 function Unpaid({ rows }) {
   return (
     <Card className="rise overflow-hidden">
-      {!rows.length ? <Empty title="Todas las ventas con tarjeta tienen su cobro" /> : (
+      {!rows.length ? <Empty title="Todas las ventas anotadas en el POS de MAJA están en su reporte" /> : (
         <>
           <div className="overflow-x-auto">
             <table className="tbl">
@@ -352,7 +353,7 @@ function Unpaid({ rows }) {
               </tbody>
             </table>
           </div>
-          <p className="px-5 pb-4 pt-2 text-[12px] text-muted">Ventas anotadas con tarjeta que no aparecen en ningún reporte subido. Puede faltar subir el reporte de algún POS, o la venta no se cobró con tarjeta.</p>
+          <p className="px-5 pb-4 pt-2 text-[12px] text-muted">Ventas anotadas en el POS de MAJA (o en el de una marca que te pasó su reporte) que no aparecen en ese reporte, en las fechas que cubre. Lo más probable es que la tarjeta se haya pasado en el POS de la marca, o que fuera en efectivo: revisalas con la vendedora. Las ventas anotadas en el POS de una marca de la que no tenés reporte no se pueden controlar y no aparecen acá.</p>
         </>
       )}
     </Card>

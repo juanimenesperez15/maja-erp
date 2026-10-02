@@ -3,6 +3,7 @@ import { Search } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { fmtMoney } from '../lib/format.js';
 import { cx } from './ui.jsx';
+import { beep } from './ScanBox.jsx';
 
 /** Buscador de artículos por SKU o nombre. Enter con un único resultado lo elige directo (sirve con lector de código). */
 export default function ProductPicker({ brandId, onPick, placeholder = 'Buscar por SKU o nombre…', autoFocus }) {
@@ -12,11 +13,15 @@ export default function ProductPicker({ brandId, onPick, placeholder = 'Buscar p
   const [hi, setHi] = useState(0);
   const box = useRef(null);
 
+  const latest = useRef('');
+  latest.current = q;
+
   useEffect(() => {
     if (!q.trim()) { setResults([]); return; }
     const t = setTimeout(async () => {
       try {
         const r = await api('/products', { query: { q, brand_id: brandId, limit: 20 } });
+        if (latest.current !== q) return; // ya se eligió o se escribió otra cosa
         setResults(r);
         setHi(0);
         setOpen(true);
@@ -38,9 +43,17 @@ export default function ProductPicker({ brandId, onPick, placeholder = 'Buscar p
     else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
     else if (e.key === 'Enter') {
       e.preventDefault();
-      const exact = results.find((r) => r.sku.toLowerCase() === q.trim().toLowerCase());
-      if (exact) pick(exact);
-      else if (results[hi]) pick(results[hi]);
+      const t = q.trim().toLowerCase();
+      if (!t) return;
+      const isExact = (r) => r.sku.toLowerCase() === t || (r.barcode && String(r.barcode).toLowerCase() === t);
+      const exact = results.find(isExact);
+      if (exact) { beep(true); pick(exact); return; }
+      if (open && results[hi] && results.length) { pick(results[hi]); return; }
+      // el escáner tipea el código y manda Enter enseguida, antes de que termine la búsqueda: buscar ya
+      api('/products', { query: { q: q.trim(), brand_id: brandId, limit: 20 } }).then((r) => {
+        const hit = r.find(isExact);
+        if (hit) { beep(true); pick(hit); } else { beep(false); setResults(r); setOpen(true); }
+      }).catch(() => beep(false));
     } else if (e.key === 'Escape') setOpen(false);
   };
 

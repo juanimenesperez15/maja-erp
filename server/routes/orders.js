@@ -17,7 +17,7 @@ function loadOrder(req, id) {
     FROM orders o JOIN brands b ON b.id = o.brand_id LEFT JOIN users u ON u.id = o.created_by WHERE o.id = ?`).get(Number(id));
   if (!order) throw notFound('Pedido inexistente');
   if (req.user.role === 'marca' && order.brand_id !== req.user.brand_id) throw forbidden();
-  order.items = db.prepare(`SELECT oi.*, p.name AS product_name, p.variant AS product_variant, p.stock AS product_stock
+  order.items = db.prepare(`SELECT oi.*, p.name AS product_name, p.variant AS product_variant, p.stock AS product_stock, p.barcode AS product_barcode
     FROM order_items oi LEFT JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ? ORDER BY oi.id`).all(order.id);
   return order;
 }
@@ -56,20 +56,20 @@ ordersRouter.post('/orders', (req, res) => {
     if (it.product_id) {
       const p = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(it.product_id));
       if (!p || p.brand_id !== brandId) throw bad('Hay un artículo que no es de esta marca');
-      return { product_id: p.id, sku: p.sku, description: p.name, variant: p.variant, price: p.price, qty };
+      return { product_id: p.id, sku: p.sku, description: p.name, variant: p.variant, price: p.price, barcode: p.barcode, qty };
     }
     // artículo nuevo: solo tiene sentido en un ingreso (se da de alta al recibirlo)
     if (type !== 'ingreso') throw bad('En pick ups y retiros elegí artículos que ya estén en stock');
     if (!str(it.sku) || !str(it.description)) throw bad('Los artículos nuevos necesitan SKU y nombre');
-    return { product_id: null, sku: str(it.sku), description: str(it.description), variant: str(it.variant), price: num(it.price), qty };
+    return { product_id: null, sku: str(it.sku), description: str(it.description), variant: str(it.variant), price: num(it.price), barcode: str(it.barcode), qty };
   });
 
   const id = tx(() => {
     const r = db.prepare(`INSERT INTO orders (brand_id, type, customer_name, customer_phone, external_ref, notes, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(brandId, type, str(req.body.customer_name), str(req.body.customer_phone), str(req.body.external_ref), str(req.body.notes), req.user.id);
     const oid = Number(r.lastInsertRowid);
-    const ins = db.prepare('INSERT INTO order_items (order_id, product_id, sku, description, variant, price, qty) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    clean.forEach((c) => ins.run(oid, c.product_id, c.sku, c.description, c.variant, c.price, c.qty));
+    const ins = db.prepare('INSERT INTO order_items (order_id, product_id, sku, description, variant, price, barcode, qty) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    clean.forEach((c) => ins.run(oid, c.product_id, c.sku, c.description, c.variant, c.price, c.barcode, c.qty));
     return oid;
   });
   res.json({ id });
@@ -118,8 +118,8 @@ ordersRouter.put('/orders/:id/status', (req, res) => {
         if (!pid) {
           // alta del artículo nuevo que vino en el ingreso
           const existing = db.prepare('SELECT id FROM products WHERE brand_id = ? AND sku = ?').get(order.brand_id, it.sku);
-          pid = existing?.id ?? Number(db.prepare('INSERT INTO products (brand_id, sku, name, variant, price) VALUES (?, ?, ?, ?, ?)')
-            .run(order.brand_id, it.sku, it.description, it.variant, it.price || 0).lastInsertRowid);
+          pid = existing?.id ?? Number(db.prepare('INSERT INTO products (brand_id, sku, name, variant, barcode, price) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(order.brand_id, it.sku, it.description, it.variant, it.barcode, it.price || 0).lastInsertRowid);
           db.prepare('UPDATE order_items SET product_id = ? WHERE id = ?').run(pid, it.id);
         }
         // se mueve lo armado/recibido, no lo pedido: lo que faltó queda a la vista de la marca

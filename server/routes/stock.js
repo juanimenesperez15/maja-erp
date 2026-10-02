@@ -17,9 +17,9 @@ stockRouter.get('/products', (req, res) => {
   if (req.query.include_inactive !== '1') where.push('p.active = 1');
   if (req.query.low === '1') where.push('p.stock <= p.min_stock');
   if (str(req.query.q)) {
-    where.push('(p.sku LIKE ? OR p.name LIKE ? OR p.variant LIKE ?)');
+    where.push('(p.sku LIKE ? OR p.name LIKE ? OR p.variant LIKE ? OR p.barcode LIKE ?)');
     const q = `%${str(req.query.q)}%`;
-    args.push(q, q, q);
+    args.push(q, q, q, q);
   }
   const rows = db.prepare(`
     SELECT p.*, b.name AS brand_name,
@@ -37,18 +37,19 @@ function productBody(b) {
   const name = str(b.name);
   if (!sku || !name) throw bad('El SKU y el nombre son obligatorios');
   if (num(b.price) < 0) throw bad('El precio no puede ser negativo');
-  return { sku, name, variant: str(b.variant), price: num(b.price), min_stock: Math.max(0, Math.trunc(num(b.min_stock))), active: b.active === false ? 0 : 1 };
+  return { sku, name, variant: str(b.variant), barcode: str(b.barcode), price: num(b.price), min_stock: Math.max(0, Math.trunc(num(b.min_stock))), active: b.active === false ? 0 : 1 };
 }
 
 stockRouter.post('/products', (req, res) => {
   const brandId = requireBrand(req, req.body.brand_id);
   const p = productBody(req.body);
   if (db.prepare('SELECT 1 FROM products WHERE brand_id = ? AND sku = ?').get(brandId, p.sku)) throw bad(`El SKU ${p.sku} ya existe en esta marca`);
+  if (p.barcode && db.prepare('SELECT 1 FROM products WHERE brand_id = ? AND barcode = ?').get(brandId, p.barcode)) throw bad(`El código de barras ${p.barcode} ya es de otro artículo`);
   const initial = Math.trunc(num(req.body.stock));
   if (initial && !isStaff(req.user)) throw bad('El stock entra con un pedido de ingreso de mercadería');
   const id = tx(() => {
-    const r = db.prepare('INSERT INTO products (brand_id, sku, name, variant, price, min_stock, active) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(brandId, p.sku, p.name, p.variant, p.price, p.min_stock, p.active);
+    const r = db.prepare('INSERT INTO products (brand_id, sku, name, variant, barcode, price, min_stock, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(brandId, p.sku, p.name, p.variant, p.barcode, p.price, p.min_stock, p.active);
     const pid = Number(r.lastInsertRowid);
     if (initial) moveStock({ productId: pid, brandId, qty: initial, reason: 'ajuste', note: 'Stock inicial', userId: req.user.id });
     return pid;
@@ -62,8 +63,9 @@ stockRouter.put('/products/:id', (req, res) => {
   canTouch(req, prod);
   const p = productBody(req.body);
   if (db.prepare('SELECT 1 FROM products WHERE brand_id = ? AND sku = ? AND id <> ?').get(prod.brand_id, p.sku, prod.id)) throw bad(`El SKU ${p.sku} ya existe en esta marca`);
-  db.prepare('UPDATE products SET sku = ?, name = ?, variant = ?, price = ?, min_stock = ?, active = ? WHERE id = ?')
-    .run(p.sku, p.name, p.variant, p.price, p.min_stock, p.active, prod.id);
+  if (p.barcode && db.prepare('SELECT 1 FROM products WHERE brand_id = ? AND barcode = ? AND id <> ?').get(prod.brand_id, p.barcode, prod.id)) throw bad(`El código de barras ${p.barcode} ya es de otro artículo`);
+  db.prepare('UPDATE products SET sku = ?, name = ?, variant = ?, barcode = ?, price = ?, min_stock = ?, active = ? WHERE id = ?')
+    .run(p.sku, p.name, p.variant, p.barcode, p.price, p.min_stock, p.active, prod.id);
   res.json({ ok: true });
 });
 
@@ -105,13 +107,13 @@ stockRouter.post('/products/import', (req, res) => {
       const existing = db.prepare('SELECT * FROM products WHERE brand_id = ? AND sku = ?').get(brandId, sku);
       let pid;
       if (existing) {
-        db.prepare('UPDATE products SET name = ?, variant = COALESCE(?, variant), price = ?, active = 1 WHERE id = ?')
-          .run(name, str(row.variant), row.price === undefined || row.price === '' ? existing.price : num(row.price), existing.id);
+        db.prepare('UPDATE products SET name = ?, variant = COALESCE(?, variant), barcode = COALESCE(?, barcode), price = ?, active = 1 WHERE id = ?')
+          .run(name, str(row.variant), str(row.barcode), row.price === undefined || row.price === '' ? existing.price : num(row.price), existing.id);
         pid = existing.id;
         result.updated++;
       } else {
-        pid = Number(db.prepare('INSERT INTO products (brand_id, sku, name, variant, price) VALUES (?, ?, ?, ?, ?)')
-          .run(brandId, sku, name, str(row.variant), num(row.price)).lastInsertRowid);
+        pid = Number(db.prepare('INSERT INTO products (brand_id, sku, name, variant, barcode, price) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(brandId, sku, name, str(row.variant), str(row.barcode), num(row.price)).lastInsertRowid);
         result.created++;
       }
       if (withStock && row.stock !== undefined && row.stock !== '') {

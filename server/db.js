@@ -174,6 +174,10 @@ ensureColumn('sales', 'void_cfe_number', 'TEXT');
 ensureColumn('order_items', 'picked_qty', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('orders', 'picked_up_by', 'TEXT');
 ensureColumn('settlements', 'card_credit', 'REAL NOT NULL DEFAULT 0');
+// código de barras de la etiqueta (EAN), aparte del SKU: es lo que lee el escáner
+ensureColumn('products', 'barcode', 'TEXT');
+ensureColumn('order_items', 'barcode', 'TEXT');
+db.exec('CREATE INDEX IF NOT EXISTS ix_products_barcode ON products(barcode)');
 // perfil de vendedora: la tabla users se creó con CHECK (role IN ('admin','marca')) y SQLite no deja cambiarlo
 const usersSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()?.sql ?? '';
 if (!usersSql.includes('vendedora')) {

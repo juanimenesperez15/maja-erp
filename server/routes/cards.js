@@ -257,13 +257,23 @@ cardsRouter.get('/cards/txns', (req, res) => {
   const to = str(req.query.to) || range.b || today();
   const txns = loadTxns(from, to);
 
-  // ventas con tarjeta del período que no aparecen en ningún reporte subido
+  // de qué POS hay reporte y para qué fechas: sin el reporte de un POS no se puede saber si una venta
+  // anotada en él se cobró (lo normal es tener solo el de MAJA)
+  const coverage = {};
+  for (const r of db.prepare(`SELECT DISTINCT ci.date_from, ci.date_to, pt.owner, pt.brand_id FROM card_imports ci
+      JOIN card_txns c ON c.import_id = ci.id JOIN pos_terminals pt ON pt.terminal = c.terminal WHERE pt.owner IS NOT NULL`).all()) {
+    (coverage[r.owner === 'maja' ? 'maja' : `marca:${r.brand_id}`] ??= []).push([r.date_from, r.date_to]);
+  }
+  const covered = (s) => (coverage[s.pos === 'maja' ? 'maja' : `marca:${s.brand_id}`] ?? []).some(([a, b]) => s.date >= a && s.date <= b);
+
+  // ventas anotadas en un POS con reporte subido que no aparecen en ese reporte
   const linked = new Set(db.prepare('SELECT sale_id FROM card_txns WHERE sale_id IS NOT NULL').all().map((r) => r.sale_id));
   const totals = saleTotals();
   const unpaid = db.prepare(`SELECT s.*, b.name AS brand_name FROM sales s JOIN brands b ON b.id = s.brand_id
-    WHERE s.voided = 0 AND s.payment_method IN ('Débito','Crédito') AND s.date BETWEEN ? AND ? ORDER BY s.date DESC, s.id DESC`).all(from, to)
-    .filter((s) => !linked.has(s.id))
+    WHERE s.voided = 0 AND s.payment_method IN ('Débito','Crédito') AND s.pos IS NOT NULL AND s.date BETWEEN ? AND ? ORDER BY s.date DESC, s.id DESC`).all(from, to)
+    .filter((s) => !linked.has(s.id) && covered(s))
     .map((s) => ({ id: s.id, date: s.date, brand_id: s.brand_id, brand_name: s.brand_name, payment_method: s.payment_method, pos: s.pos, installments: s.installments, invoice_number: s.invoice_number, total: round2(totals[s.id] ?? 0) }));
+  const brandPosNames = db.prepare("SELECT DISTINCT b.name FROM pos_terminals pt JOIN brands b ON b.id = pt.brand_id WHERE pt.owner = 'marca'").all().map((r) => r.name);
 
   // por marca: cuánto de sus ventas cobró cada POS
   const byBrand = {};
@@ -276,7 +286,7 @@ cardsRouter.get('/cards/txns', (req, res) => {
     else if (t.owner === 'marca') b.other += t.amount;
   }
   const imports = db.prepare('SELECT ci.*, u.name AS user_name FROM card_imports ci LEFT JOIN users u ON u.id = ci.created_by ORDER BY ci.id DESC LIMIT 10').all();
-  res.json({ from, to, txns, unpaid, by_brand: Object.values(byBrand).map((b) => ({ ...b, maja: round2(b.maja), own: round2(b.own), other: round2(b.other) })), imports });
+  res.json({ from, to, txns, unpaid, coverage: { maja: !!coverage.maja, brand_pos: brandPosNames }, by_brand: Object.values(byBrand).map((b) => ({ ...b, maja: round2(b.maja), own: round2(b.own), other: round2(b.other) })), imports });
 });
 
 // la prueba de un cruce: el cobro de Handy al lado de la venta y por qué se unieron

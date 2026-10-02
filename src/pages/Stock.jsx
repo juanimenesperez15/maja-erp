@@ -64,7 +64,7 @@ export default function Stock() {
                 {rows.map((p) => (
                   <tr key={p.id} className={p.active ? '' : 'opacity-50'}>
                     {!brandId && <td className="text-ink2">{p.brand_name}</td>}
-                    <td className="font-mono text-[12px] text-ink2">{p.sku}</td>
+                    <td className="font-mono text-[12px] text-ink2">{p.sku}{p.barcode && <span className="block text-[10px] text-muted">{p.barcode}</span>}</td>
                     <td><span className="font-medium">{p.name}</span>{p.variant && <span className="text-muted"> · {p.variant}</span>}</td>
                     <td className="num text-right">{fmtMoney(p.price)}</td>
                     <td className="text-right">
@@ -128,6 +128,7 @@ function ProductModal({ product, brands, isAdmin, onClose, onSaved }) {
         {!form.id && isAdmin && <div className="col-span-2"><BrandSelect value={form.brand_id} onChange={(v) => setForm({ ...form, brand_id: v })} brands={brands} /></div>}
         <Field label="SKU / código"><Input value={form.sku} onChange={set('sku')} autoFocus /></Field>
         <Field label="Variante" hint="Talle, color…"><Input value={form.variant || ''} onChange={set('variant')} /></Field>
+        <Field label="Código de barras" hint="El de la etiqueta (EAN). Con el escáner lo cargás de un toque" className="col-span-2"><Input className="font-mono" value={form.barcode || ''} onChange={set('barcode')} /></Field>
         <Field label="Nombre del artículo" className="col-span-2"><Input value={form.name} onChange={set('name')} /></Field>
         <Field label="Precio de venta ($)"><Input inputMode="decimal" value={form.price} onChange={set('price')} /></Field>
         <Field label="Avisar con stock ≤" hint="0 = avisa solo al agotarse"><Input inputMode="numeric" value={form.min_stock} onChange={set('min_stock')} /></Field>
@@ -229,7 +230,7 @@ function ImportModal({ brandId: initialBrand, brands, isAdmin, isOwner, onClose,
       <div className="space-y-4">
         {isAdmin && <div className="max-w-xs"><BrandSelect value={brandId} onChange={setBrandId} brands={brands} /></div>}
         <p className="text-[13px] text-ink2">
-          Subí un CSV o pegá las columnas copiadas desde Excel. Encabezados que se reconocen: <b>SKU</b> (o Código), <b>Nombre</b> (o Artículo), <b>Variante</b> (o Talle), <b>Precio</b>{isOwner && <>, <b>Stock</b></>}. Si el SKU ya existe, se actualiza.
+          Subí un CSV o pegá las columnas copiadas desde Excel. Encabezados que se reconocen: <b>SKU</b> (o Código), <b>Nombre</b> (o Artículo), <b>Variante</b> (o Talle), <b>Código de barras</b> (o EAN), <b>Precio</b>{isOwner && <>, <b>Stock</b></>}. Si el SKU ya existe, se actualiza.
         </p>
         <div className="flex items-center gap-3">
           <label className="cursor-pointer"><span className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-card px-4 text-[14px] hover:border-ink/40"><Upload size={15} />Elegir archivo</span><input type="file" accept=".csv,.txt,.tsv" className="hidden" onChange={onFile} /></label>

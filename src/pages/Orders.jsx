@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { Plus, Truck, ShoppingBag, Trash2, Phone, Minus, Check, CheckCheck, PackageCheck } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Plus, Truck, ShoppingBag, Trash2, Phone, Minus, Check, CheckCheck, PackageCheck, Upload } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, Tabs, Textarea, useToast, cx, STATUS_LABEL, STATUS_TONE, TYPE_LABEL } from '../components/ui.jsx';
 import ProductPicker from '../components/ProductPicker.jsx';
-import { fmtDateTime, fmtInt } from '../lib/format.js';
+import ScanBox, { findByCode } from '../components/ScanBox.jsx';
+import { fmtDateTime, fmtInt, parseNum, parseTable } from '../lib/format.js';
 
 /** Estado a mostrar: un pedido pendiente con algo ya armado está "en armado". */
 export function orderStatus(o) {
@@ -95,32 +96,81 @@ function NewOrderModal({ isPickups, isAdmin, brandId: initialBrand, onClose, onS
   const [items, setItems] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // en la tienda se carga con el escáner; la marca desde su casa suele buscar o pegar su planilla
+  const [mode, setMode] = useState(isAdmin ? 'scan' : 'search');
+  const [sheet, setSheet] = useState('');
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const brandChosen = !!form.brand_id;
+  const { data: catalog } = useApi(brandChosen ? '/products' : null, { brand_id: form.brand_id });
+  const products = catalog || [];
+  const isIngreso = form.type === 'ingreso';
 
-  const addProduct = (p) => {
+  const addProduct = (p, n = 1) => {
     setItems((list) => {
       const i = list.findIndex((x) => x.product_id === p.id);
-      if (i >= 0) return list.map((x, j) => (j === i ? { ...x, qty: String(Number(x.qty) + 1) } : x));
-      return [...list, { product_id: p.id, sku: p.sku, description: p.name, variant: p.variant, stock: p.stock, qty: '1' }];
+      if (i >= 0) return list.map((x, j) => (j === i ? { ...x, qty: String(Number(x.qty) + n) } : x));
+      return [...list, { product_id: p.id, sku: p.sku, description: p.name, variant: p.variant, stock: p.stock, qty: String(n) }];
     });
   };
-  const addNew = () => setItems((l) => [...l, { product_id: null, sku: '', description: '', variant: '', price: '', qty: '1', isNew: true }]);
+  const addNew = (fields = {}, n = 1) => setItems((l) => {
+    const code = fields.barcode || fields.sku;
+    const i = code ? l.findIndex((x) => x.isNew && (x.barcode || x.sku) === code) : -1;
+    if (i >= 0) return l.map((x, j) => (j === i ? { ...x, qty: String(Number(x.qty) + n) } : x));
+    return [...l, { product_id: null, sku: '', description: '', variant: '', price: '', barcode: '', qty: String(n), isNew: true, ...fields }];
+  });
   const upd = (i, k, v) => setItems((l) => l.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const qtyOf = (pid) => Number(items.find((x) => x.product_id === pid)?.qty || 0);
+
+  const onScan = (code) => {
+    const p = findByCode(products, code);
+    if (p) {
+      addProduct(p);
+      const n = qtyOf(p.id) + 1;
+      const low = !isIngreso && n > p.stock;
+      return { ok: !low, text: `${p.name}${p.variant ? ` · ${p.variant}` : ''} — van ${n}${low ? ` (hay ${p.stock} en stock)` : ''}` };
+    }
+    if (isIngreso) {
+      addNew({ sku: code, barcode: /^\d{8,14}$/.test(code) ? code : '' });
+      return { ok: false, text: 'Código nuevo: se agregó abajo, completá nombre y precio' };
+    }
+    return { ok: false, text: 'No es un artículo de esta marca' };
+  };
+
+  const sheetRows = useMemo(() => { try { return parseTable(sheet); } catch { return []; } }, [sheet]);
+  const loadSheet = () => {
+    let added = 0;
+    const missing = [];
+    for (const r of sheetRows) {
+      const code = r.barcode || r.sku;
+      const n = Math.max(1, Math.trunc(parseNum(r.stock ?? r.qty) ?? 1));
+      const p = code ? findByCode(products, code) : null;
+      if (p) { addProduct(p, n); added += n; }
+      else if (isIngreso && r.sku && r.name) { addNew({ sku: r.sku, description: r.name, variant: r.variant || '', price: r.price || '', barcode: r.barcode || '' }, n); added += n; }
+      else missing.push(code || '(sin código)');
+    }
+    toast(`${added} unidades agregadas${missing.length ? ` · ${missing.length} códigos sin artículo` : ''}`, missing.length ? 'bad' : 'ok');
+    if (missing.length) setError(`No encontré: ${missing.slice(0, 12).join(', ')}${missing.length > 12 ? '…' : ''}${isIngreso ? '. Para artículos nuevos agregá columnas Nombre y Precio.' : ''}`);
+    else { setSheet(''); setError(''); }
+  };
+  const onFile = async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) setSheet(await f.text()); };
 
   const save = async () => {
     setBusy(true);
     setError('');
     try {
       const r = await api('/orders', { method: 'POST', body: { ...form, items } });
-      toast(isPickups ? 'Pick up cargado' : 'Pedido enviado a MAJA');
+      toast(isPickups ? 'Pick up cargado' : isAdmin ? 'Pedido creado' : 'Pedido enviado a MAJA');
       onSaved(r.id);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   };
 
-  const brandChosen = !!form.brand_id;
+  const units = items.reduce((a, i) => a + (Number(i.qty) || 0), 0);
   return (
     <Modal open wide title={isPickups ? 'Nuevo pick up' : 'Nuevo pedido'} onClose={onClose}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancelar</Button><Button onClick={save} loading={busy} disabled={!items.length}>{isPickups ? 'Cargar pick up' : 'Enviar pedido'}</Button></>}>
+      footer={<>
+        {units > 0 && <span className="mr-auto self-center text-[13px] text-muted"><b className="num text-ink">{units}</b> unidades · {items.length} artículos</span>}
+        <Button variant="ghost" onClick={onClose}>Cancelar</Button><Button onClick={save} loading={busy} disabled={!items.length}>{isPickups ? 'Cargar pick up' : isAdmin ? 'Crear pedido' : 'Enviar pedido'}</Button>
+      </>}>
       <div className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-3">
           {isAdmin && (
@@ -134,8 +184,8 @@ function NewOrderModal({ isPickups, isAdmin, brandId: initialBrand, onClose, onS
           {!isPickups && (
             <Field label="Tipo">
               <Select value={form.type} onChange={(e) => { setForm({ ...form, type: e.target.value }); setItems((l) => l.filter((x) => !x.isNew)); }}>
-                <option value="ingreso">Ingreso de mercadería (la marca manda)</option>
-                <option value="retiro">Retiro de mercadería (la marca se lleva)</option>
+                <option value="ingreso">Ingreso de mercadería (entra a la tienda)</option>
+                <option value="retiro">Retiro de mercadería (sale de la tienda)</option>
               </Select>
             </Field>
           )}
@@ -147,32 +197,54 @@ function NewOrderModal({ isPickups, isAdmin, brandId: initialBrand, onClose, onS
         </div>
 
         <div>
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <div className="eyebrow">Artículos</div>
-            {form.type === 'ingreso' && brandChosen && <Button size="sm" variant="ghost" onClick={addNew}><Plus size={14} />Artículo nuevo</Button>}
+            {brandChosen && (
+              <div className="flex items-center gap-2">
+                {isIngreso && <Button size="sm" variant="ghost" onClick={() => addNew()}><Plus size={14} />Artículo nuevo</Button>}
+                <Tabs value={mode} onChange={setMode} options={[{ value: 'scan', label: 'Escáner' }, { value: 'search', label: 'Buscar' }, { value: 'sheet', label: 'Planilla' }]} />
+              </div>
+            )}
           </div>
-          {brandChosen ? <ProductPicker brandId={form.brand_id} onPick={addProduct} placeholder="Buscá el artículo por SKU o nombre…" autoFocus={!isAdmin} /> : <div className="rounded-md bg-sunk px-3 py-2 text-[13px] text-muted">Elegí la marca para buscar sus artículos.</div>}
+          {!brandChosen ? <div className="rounded-md bg-sunk px-3 py-2 text-[13px] text-muted">Elegí la marca para cargar sus artículos.</div>
+            : mode === 'scan' ? (
+              <ScanBox onScan={onScan} hint={`Cada lectura suma 1. Lee el código de barras o el SKU.${isIngreso ? ' Un código que no existe se agrega como artículo nuevo.' : ''}`} />
+            ) : mode === 'search' ? (
+              <ProductPicker brandId={form.brand_id} onPick={(p) => addProduct(p)} placeholder="Buscá el artículo por SKU, código o nombre…" autoFocus />
+            ) : (
+              <div className="space-y-2 rounded-lg border border-line p-3">
+                <div className="flex flex-wrap items-center gap-3 text-[13px] text-ink2">
+                  <label className="cursor-pointer"><span className="inline-flex h-8 items-center gap-2 rounded-md border border-line bg-card px-3 text-[13px] hover:border-ink/40"><Upload size={14} />Subir CSV</span><input type="file" accept=".csv,.txt,.tsv" className="hidden" onChange={onFile} /></label>
+                  <span>o pegá desde Excel. Columnas: <b>SKU</b> o <b>Código de barras</b>, y <b>Cantidad</b>{isIngreso && <> (para artículos nuevos, además <b>Nombre</b>, <b>Variante</b> y <b>Precio</b>)</>}.</span>
+                </div>
+                <Textarea className="min-h-[110px] font-mono text-[12px]" value={sheet} onChange={(e) => setSheet(e.target.value)} placeholder={'SKU;Cantidad\nK113-M;4\nK113-L;2'} />
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] text-muted">{sheetRows.length ? `${sheetRows.length} filas leídas` : ''}</span>
+                  <Button size="sm" onClick={loadSheet} disabled={!sheetRows.length || !catalog}>Agregar al pedido</Button>
+                </div>
+              </div>
+            )}
           {items.length > 0 && (
-            <div className="mt-3 overflow-x-auto rounded-lg border border-line">
+            <div className="mt-3 max-h-[42vh] overflow-auto rounded-lg border border-line">
               <table className="tbl">
-                <thead><tr><th>SKU</th><th>Artículo</th><th>Variante</th>{form.type === 'ingreso' && <th>Precio</th>}<th className="w-24 text-right">Cant.</th><th /></tr></thead>
+                <thead><tr><th>SKU</th><th>Artículo</th><th>Variante</th>{isIngreso && <th>Precio</th>}<th className="w-24 text-right">Cant.</th><th /></tr></thead>
                 <tbody>
                   {items.map((it, i) => (
-                    <tr key={i}>
+                    <tr key={i} className={cx(it.isNew && !it.description && 'bg-warn-soft/50')}>
                       {it.isNew ? <>
-                        <td><Input className="h-8 py-1" value={it.sku} onChange={(e) => upd(i, 'sku', e.target.value)} placeholder="SKU" /></td>
-                        <td><Input className="h-8 py-1" value={it.description} onChange={(e) => upd(i, 'description', e.target.value)} placeholder="Nombre" /></td>
+                        <td><Input className="h-8 py-1" value={it.sku} onChange={(e) => upd(i, 'sku', e.target.value)} placeholder="SKU" />{it.barcode && <div className="mt-0.5 font-mono text-[10px] text-muted">EAN {it.barcode}</div>}</td>
+                        <td><Input className="h-8 py-1" value={it.description} onChange={(e) => upd(i, 'description', e.target.value)} placeholder="Nombre (nuevo)" /></td>
                         <td><Input className="h-8 py-1" value={it.variant} onChange={(e) => upd(i, 'variant', e.target.value)} placeholder="Talle/color" /></td>
                         <td><Input className="h-8 w-24 py-1" inputMode="decimal" value={it.price} onChange={(e) => upd(i, 'price', e.target.value)} placeholder="$" /></td>
                       </> : <>
                         <td className="font-mono text-[12px] text-ink2">{it.sku}</td>
                         <td className="font-medium">{it.description}</td>
                         <td className="text-muted">{it.variant}</td>
-                        {form.type === 'ingreso' && <td className="text-muted">—</td>}
+                        {isIngreso && <td className="text-muted">—</td>}
                       </>}
                       <td className="text-right">
                         <Input className="ml-auto h-8 w-20 py-1 text-right" inputMode="numeric" value={it.qty} onChange={(e) => upd(i, 'qty', e.target.value)} />
-                        {!it.isNew && form.type !== 'ingreso' && Number(it.qty) > it.stock && <div className="mt-1 text-[11px] text-bad">Hay {it.stock} en stock</div>}
+                        {!it.isNew && !isIngreso && Number(it.qty) > it.stock && <div className="mt-1 text-[11px] text-bad">Hay {it.stock} en stock</div>}
                       </td>
                       <td><button onClick={() => setItems((l) => l.filter((_, j) => j !== i))} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad" aria-label="Quitar"><Trash2 size={14} /></button></td>
                     </tr>
@@ -182,7 +254,7 @@ function NewOrderModal({ isPickups, isAdmin, brandId: initialBrand, onClose, onS
             </div>
           )}
         </div>
-        <Field label="Notas para MAJA"><Textarea value={form.notes} onChange={set('notes')} placeholder={isPickups ? 'Cuándo pasan a retirar, cómo lo quieren armado…' : 'Cuándo llega, cuántas cajas…'} /></Field>
+        <Field label={isAdmin ? 'Notas' : 'Notas para MAJA'}><Textarea value={form.notes} onChange={set('notes')} placeholder={isPickups ? 'Cuándo pasan a retirar, cómo lo quieren armado…' : 'Cuándo llega, cuántas cajas…'} /></Field>
         <ErrorNote>{error}</ErrorNote>
       </div>
     </Modal>
@@ -216,6 +288,17 @@ function OrderModal({ id, isAdmin, onClose, onChanged }) {
   };
   const setLine = (it, q) => pick([{ id: it.id, picked_qty: Math.max(0, isIngreso ? q : Math.min(q, it.qty)) }]);
   const pickAll = () => pick(o.items.map((it) => ({ id: it.id, picked_qty: it.qty })));
+  // cada lectura del escáner suma 1 a la línea de ese artículo
+  const onScan = (code) => {
+    const c = code.trim().toLowerCase();
+    const it = o.items.find((x) => [x.sku, x.product_barcode, x.barcode].some((v) => v && String(v).trim().toLowerCase() === c));
+    if (!it) return { ok: false, text: 'No está en este pedido' };
+    const name = it.product_name || it.description;
+    if (!isIngreso && it.picked_qty >= it.qty) return { ok: false, text: `${name}: ya están las ${it.qty}` };
+    setLine(it, it.picked_qty + 1);
+    const n = it.picked_qty + 1;
+    return { ok: true, text: `${name}${it.product_variant || it.variant ? ` · ${it.product_variant || it.variant}` : ''}: ${n} de ${it.qty}${isIngreso && n > it.qty ? ' (llegó de más)' : ''}` };
+  };
 
   const move = async (status) => {
     if (status === 'cancelado' && !window.confirm('¿Cancelar este pedido?')) return;
@@ -277,6 +360,7 @@ function OrderModal({ id, isAdmin, onClose, onChanged }) {
               </div>
               {canPick && picked < requested && <Button size="sm" variant="outline" onClick={pickAll}><CheckCheck size={14} />{isIngreso ? 'Llegó todo' : 'Marcar todo armado'}</Button>}
             </div>
+            {canPick && <div className="mb-3"><ScanBox onScan={onScan} hint={isIngreso ? 'Escaneá cada prenda que llegó: se cuenta sola en su línea.' : 'Escaneá cada prenda que ponés en la bolsa: se tilda sola.'} /></div>}
             <div className="overflow-x-auto rounded-lg border border-line">
               <table className="tbl">
                 <thead><tr><th className="w-8" /><th>Artículo</th><th className="text-right">Pedido</th>{!isIngreso && !closed && <th className="text-right">En stock</th>}<th className="text-center">{verb}</th></tr></thead>

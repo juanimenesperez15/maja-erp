@@ -26,6 +26,8 @@ Pick ups: la marca pide, MAJA arma artículo por artículo (puede quedar incompl
 
 **Conciliación de tarjetas** (dueña): cada venta con débito o crédito guarda en qué POS se pasó (el de MAJA o el de la marca). Se sube el reporte de Actividad de Handy de cada POS (Excel); cada cobro se cruza con las ventas por importe, fecha, hora y n° de factura, y quedan marcadas las ventas anotadas en el POS equivocado, con el medio equivocado, cobradas en el POS de otra marca, cobros sin venta y ventas con tarjeta sin cobro. "Corregir venta" la deja como dice Handy. La liquidación de cada marca muestra cuánto de sus ventas se cobró en el POS de MAJA.
 
+**Escáner de códigos de barras:** cada artículo puede tener su código de barras (EAN) además del SKU. En un pedido nuevo (ingreso, retiro o pick up) el modo Escáner suma 1 por lectura y agrega los códigos desconocidos como artículos nuevos (en ingresos); también se puede cargar desde planilla (SKU o código + cantidad). Al recibir o armar un pedido, escanear cada prenda la cuenta en su línea. En la caja, leer el código agrega el artículo a la venta.
+
 El stock se mueve solo: suma al recibir un ingreso, baja con cada venta, pick up entregado o retiro, y vuelve con una devolución o una venta anulada. Cada movimiento queda en el historial del artículo.
 
 Liquidación del mes de una marca = comisión % sobre lo vendido + cuota mensual (+ IVA 22 % si la marca está marcada así). Mientras el mes está abierto se recalcula; al cerrarlo se congela.
