@@ -17,7 +17,7 @@ function salesByBrand(from, to) {
 }
 
 // ---------- cómo va cada marca ----------
-insightsRouter.get('/performance', staffOnly, (req, res) => {
+insightsRouter.get('/performance', adminOnly, (req, res) => {
   const period = isPeriod(req.query.period) ? req.query.period : currentPeriod();
   const now = today();
   const cur = currentPeriod();
@@ -116,6 +116,23 @@ insightsRouter.get('/performance', staffOnly, (req, res) => {
     by_payment: byPayment.map((r) => ({ ...r, total: round2(r.total) })),
     by_seller: bySeller.map((r) => ({ ...r, total: round2(r.total) })),
   });
+});
+
+// ---------- tablero de la vendedora: lo del día ----------
+insightsRouter.get('/shift', staffOnly, (req, res) => {
+  const now = today();
+  const store = db.prepare(`SELECT COALESCE(SUM(si.total), 0) AS total, COUNT(DISTINCT s.id) AS tickets, COALESCE(SUM(si.qty), 0) AS units
+    FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE s.voided = 0 AND s.date = ?`).get(now);
+  const mine = db.prepare(`SELECT COALESCE(SUM(si.total), 0) AS total, COUNT(DISTINCT s.id) AS tickets
+    FROM sale_items si JOIN sales s ON s.id = si.sale_id WHERE s.voided = 0 AND s.date = ? AND s.created_by = ?`).get(now, req.user.id);
+  const orders = db.prepare(`SELECT o.id, o.type, o.status, o.customer_name, o.external_ref, o.created_at, b.name AS brand_name,
+      (SELECT COALESCE(SUM(qty), 0) FROM order_items WHERE order_id = o.id) AS units,
+      (SELECT COALESCE(SUM(picked_qty), 0) FROM order_items WHERE order_id = o.id) AS picked_units
+    FROM orders o JOIN brands b ON b.id = o.brand_id WHERE o.status IN ('pendiente','listo') ORDER BY o.created_at`).all();
+  const lowStock = db.prepare(`SELECT p.id, p.sku, p.name, p.variant, p.stock, b.name AS brand_name FROM products p JOIN brands b ON b.id = p.brand_id
+    WHERE p.active = 1 AND b.active = 1 AND p.stock <= p.min_stock ORDER BY p.stock, p.name LIMIT 12`).all();
+  const pendingInvoices = db.prepare(`SELECT COUNT(*) AS n FROM sales WHERE voided = 0 AND invoice_status IN ('error','pendiente')`).get().n;
+  res.json({ date: now, store: { ...store, total: round2(store.total) }, mine: { ...mine, total: round2(mine.total) }, orders, low_stock: lowStock, pending_invoices: pendingInvoices });
 });
 
 // ---------- objetivos de venta ----------

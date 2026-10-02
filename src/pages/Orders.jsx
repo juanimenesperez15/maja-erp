@@ -217,7 +217,7 @@ function NewOrderModal({ isPickups, isAdmin, brandId: initialBrand, onClose, onS
                   <label className="cursor-pointer"><span className="inline-flex h-8 items-center gap-2 rounded-md border border-line bg-card px-3 text-[13px] hover:border-ink/40"><Upload size={14} />Subir CSV</span><input type="file" accept=".csv,.txt,.tsv" className="hidden" onChange={onFile} /></label>
                   <span>o pegá desde Excel. Columnas: <b>SKU</b> o <b>Código de barras</b>, y <b>Cantidad</b>{isIngreso && <> (para artículos nuevos, además <b>Nombre</b>, <b>Variante</b> y <b>Precio</b>)</>}.</span>
                 </div>
-                <Textarea className="min-h-[110px] font-mono text-[12px]" value={sheet} onChange={(e) => setSheet(e.target.value)} placeholder={'SKU;Cantidad\nK113-M;4\nK113-L;2'} />
+                <Textarea className="min-h-[110px] font-mono text-[12px]" value={sheet} onChange={(e) => setSheet(e.target.value)} placeholder={'SKU;Cantidad\nCHQ-ROSA-M;4\nCHQ-ROSA-L;2'} />
                 <div className="flex items-center justify-between">
                   <span className="text-[12px] text-muted">{sheetRows.length ? `${sheetRows.length} filas leídas` : ''}</span>
                   <Button size="sm" onClick={loadSheet} disabled={!sheetRows.length || !catalog}>Agregar al pedido</Button>
@@ -262,6 +262,7 @@ function NewOrderModal({ isPickups, isAdmin, brandId: initialBrand, onClose, onS
 }
 
 function OrderModal({ id, isAdmin, onClose, onChanged }) {
+  const { isOwner } = useSession();
   const toast = useToast();
   const { data: o, loading, setData } = useApi(`/orders/${id}`);
   const [notes, setNotes] = useState(null);
@@ -314,7 +315,7 @@ function OrderModal({ id, isAdmin, onClose, onChanged }) {
 
   const footer = o && !closed && (
     <div className="flex w-full flex-wrap items-center justify-between gap-2">
-      {(isAdmin || (o.status === 'pendiente' && picked === 0)) ? <Button variant="danger" onClick={() => move('cancelado')} loading={busy === 'cancelado'}>Cancelar pedido</Button> : <span />}
+      {(isOwner || (!isAdmin && o.status === 'pendiente' && picked === 0)) ? <Button variant="danger" onClick={() => move('cancelado')} loading={busy === 'cancelado'}>Cancelar pedido</Button> : <span />}
       {isAdmin && (
         <div className="flex flex-wrap items-center gap-2">
           {isIngreso ? (

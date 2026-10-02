@@ -104,6 +104,7 @@ ordersRouter.put('/orders/:id/status', (req, res) => {
   if (req.user.role === 'marca' && !(next === 'cancelado' && order.status === 'pendiente' && picked === 0)) {
     throw forbidden('La marca solo puede cancelar pedidos que MAJA todavía no empezó a armar');
   }
+  if (req.user.role === 'vendedora' && next === 'cancelado') throw forbidden('Cancelar un pedido lo hace la dueña o la marca');
   if ((next === 'listo' || next === 'completado') && picked === 0) {
     throw bad(order.type === 'ingreso' ? 'Marcá cuánto llegó de cada artículo' : 'Marcá lo que armaste de cada artículo');
   }

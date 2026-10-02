@@ -39,11 +39,47 @@ export default function UsersPage() {
           </div>
         )}
       </Card>
-      <p className="mt-4 max-w-2xl text-[13px] text-muted">
-        <b>Dueña:</b> ve y configura todo (indicadores, objetivos, liquidaciones, marcas, usuarios). <b>Vendedora:</b> registra ventas, arma pick ups, recibe mercadería y ve el stock; no ve comisiones, cuotas ni saldos, y no anula ventas ni ajusta stock. <b>Marca:</b> ve solo lo suyo.
-      </p>
+      <PermissionTable />
       {editing && <UserModal user={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
     </>
+  );
+}
+
+// Qué puede ver y hacer cada perfil. Refleja los controles del servidor (no es solo visual).
+const PERMS = [
+  ['Tablero', 'Toda la tienda: objetivos, cómo va cada marca, alertas, por medio de pago y por vendedora', 'Lo del día: sus ventas, pick ups por armar, mercadería por recibir, stock bajo', 'El suyo: ventas, unidades, stock, pendientes y saldo con MAJA'],
+  ['Ventas', 'Todas, con totales y exportación; anula ventas', 'Registra ventas y devoluciones; ve los últimos 7 días, sin totales ni exportar; no anula', 'Solo las suyas, con factura y medio de pago'],
+  ['Stock', 'Todo; alta, edición, importación, ajustes y exportación', 'Consulta stock y movimientos; no crea artículos ni cambia precios', 'Su mercadería; carga artículos y precios (el stock entra con un ingreso)'],
+  ['Pedidos y pick ups', 'Todo, incluido cancelar', 'Crea, arma, recibe y entrega; no cancela', 'Pide ingresos, retiros y pick ups; cancela mientras no se empezó a armar'],
+  ['Liquidaciones', 'Todas; cierra meses y registra pagos', '—', 'Sus comisiones, cuotas, lo cobrado en el POS de MAJA y su saldo'],
+  ['Objetivos', 'Los define', '—', '—'],
+  ['Conciliación de tarjetas', 'Sube reportes de Handy y corrige', '—', '—'],
+  ['Marcas y usuarios', 'Los administra', 'Ve solo nombre y razón social de cada marca', 'Ve solo su ficha'],
+];
+
+function PermissionTable() {
+  return (
+    <Card className="rise mt-6 overflow-hidden">
+      <div className="px-5 pb-2 pt-5">
+        <div className="eyebrow">Qué ve y qué hace cada perfil</div>
+        <div className="mt-1 text-[13px] text-muted">Los límites los controla el servidor: aunque alguien escriba la dirección a mano, no ve lo que no le corresponde.</div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="tbl">
+          <thead><tr><th className="w-40" /><th>Dueña</th><th>Vendedora</th><th>Marca (ej. Kokoro)</th></tr></thead>
+          <tbody>
+            {PERMS.map(([area, owner, seller, brand]) => (
+              <tr key={area}>
+                <td className="align-top font-semibold">{area}</td>
+                <td className="align-top text-[13px]">{owner}</td>
+                <td className={`align-top text-[13px] ${seller === '—' ? 'text-muted' : ''}`}>{seller}</td>
+                <td className={`align-top text-[13px] ${brand === '—' ? 'text-muted' : ''}`}>{brand}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

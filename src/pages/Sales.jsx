@@ -42,7 +42,7 @@ function InvoiceCell({ g, isAdmin, onRetry, toast }) {
 }
 
 export default function Sales() {
-  const { isAdmin, isOwner, brandId } = useSession();
+  const { isAdmin, isOwner, isSeller, brandId } = useSession();
   const [range, setRange] = useState({ from: `${currentPeriod()}-01`, to: todayISO() });
   const [showVoided, setShowVoided] = useState(false);
   const [onlyPosErrors, setOnlyPosErrors] = useState(false);
@@ -99,7 +99,7 @@ export default function Sales() {
   return (
     <>
       <PageHeader eyebrow={isAdmin ? 'Caja de la tienda' : 'Lo que vendió MAJA de tu marca'} title="Ventas">
-        <Button variant="outline" onClick={exportCSV} disabled={!rows.length}><Download size={15} />Exportar</Button>
+        {!isSeller && <Button variant="outline" onClick={exportCSV} disabled={!rows.length}><Download size={15} />Exportar</Button>}
         {isAdmin && <Button onClick={() => setCreating(true)}><Plus size={16} />Registrar venta</Button>}
       </PageHeader>
 
@@ -107,11 +107,12 @@ export default function Sales() {
         <Field label="Desde"><Input type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>
         <Field label="Hasta"><Input type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
         {isAdmin && <label className="mb-2 flex items-center gap-2 text-[13px] text-ink2"><input type="checkbox" checked={showVoided} onChange={(e) => setShowVoided(e.target.checked)} className="h-4 w-4 accent-[#1d1b18]" />Mostrar anuladas</label>}
-        {posErrors > 0 && <label className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-bad"><input type="checkbox" checked={onlyPosErrors} onChange={(e) => setOnlyPosErrors(e.target.checked)} className="h-4 w-4 accent-[#a2342a]" />Ver solo errores de POS ({posErrors})</label>}
+        {isAdmin && posErrors > 0 && <label className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-bad"><input type="checkbox" checked={onlyPosErrors} onChange={(e) => setOnlyPosErrors(e.target.checked)} className="h-4 w-4 accent-[#a2342a]" />Ver solo errores de POS ({posErrors})</label>}
         {isAdmin && pendingInvoices > 0 && <div className="mb-1.5 ml-auto"><Badge tone="bad"><AlertCircle size={11} />{pendingInvoices} {pendingInvoices === 1 ? 'venta sin facturar' : 'ventas sin facturar'}</Badge></div>}
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {isSeller && <p className="mb-4 text-[13px] text-muted">Ves las ventas de los últimos 7 días de toda la tienda, para cambios y devoluciones.</p>}
+      <div className={cx('mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4', isSeller && 'hidden')}>
         <Stat label="Vendido" value={fmtMoney(totals.amount)} />
         <Stat label="Unidades" value={fmtInt(totals.units)} delay={50} />
         <Stat label="Ventas" value={fmtInt(totals.tickets)} sub={totals.tickets ? `Promedio ${fmtMoney(totals.amount / totals.tickets)}` : null} delay={100} />
@@ -147,7 +148,7 @@ export default function Sales() {
                     </td>
                     <td className="whitespace-nowrap align-top text-ink2">{g.payment_method || '—'}{g.payment_method === 'Crédito' && g.installments > 1 && ` ${g.installments} cuotas`}{g.pos && <span className="block text-[12px] text-muted">{g.pos === 'maja' ? 'POS de MAJA' : 'POS de la marca'}</span>}{posError(g) && <span className="mt-1 block">{isOwner
                       ? <button onClick={() => setEvidence(g.handy_txn_id)} title="Ver cómo se detectó" className="rounded-full transition hover:ring-2 hover:ring-bad/30"><Badge tone="bad">Handy: {g.handy_pos === 'maja' ? 'se cobró en el POS de MAJA' : 'se cobró en el POS de la marca'} ›</Badge></button>
-                      : <Badge tone="bad">Handy: {g.handy_pos === 'maja' ? 'se cobró en el POS de MAJA' : 'se cobró en el POS de la marca'}</Badge>}</span>}</td>
+                      : <Badge tone={isAdmin ? 'bad' : 'neutral'}>{isAdmin ? 'Handy: ' : ''}{g.handy_pos === 'maja' ? 'se cobró en el POS de MAJA' : 'se cobró en el POS de la marca'}</Badge>}</span>}</td>
                     <td className="align-top"><InvoiceCell g={g} isAdmin={isAdmin} onRetry={() => retry(g)} toast={toast} /></td>
                     <td className="num whitespace-nowrap text-right align-top font-semibold">{fmtMoney(g.items.reduce((a, i) => a + i.total, 0))}</td>
                     {isAdmin && <td className="text-right align-top">{!g.voided && isOwner && <button title="Anular venta" onClick={() => voidSale(g)} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad"><Ban size={15} /></button>}</td>}

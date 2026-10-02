@@ -14,8 +14,11 @@ const DOC_TYPES = ['CI', 'RUT', 'PASAPORTE', 'DNI', 'OTRO'];
 // ---------- ventas ----------
 moneyRouter.get('/sales', (req, res) => {
   const brandId = scopeBrand(req, req.query.brand_id);
-  const from = str(req.query.from) || `${currentPeriod()}-01`;
+  let from = str(req.query.from) || `${currentPeriod()}-01`;
   const to = str(req.query.to) || today();
+  // la vendedora consulta lo reciente (para cambios y devoluciones), no el historial de la tienda
+  const sellerFrom = new Date(Date.parse(`${today()}T12:00:00Z`) - 6 * 864e5).toISOString().slice(0, 10);
+  if (req.user.role === 'vendedora' && from < sellerFrom) from = sellerFrom;
   const where = ['s.date BETWEEN ? AND ?'];
   const args = [from, to];
   if (brandId) { where.push('si.brand_id = ?'); args.push(brandId); }
@@ -233,7 +236,7 @@ function lastDay(period) {
   return `${period}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
 }
 
-moneyRouter.get('/dashboard', (req, res) => {
+moneyRouter.get('/dashboard', notSeller, (req, res) => {
   const brandId = scopeBrand(req, req.query.brand_id);
   const period = isPeriod(req.query.period) ? req.query.period : currentPeriod();
   const prev = shiftPeriod(period, -1);

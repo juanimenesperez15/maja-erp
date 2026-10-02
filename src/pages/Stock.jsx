@@ -8,7 +8,7 @@ import { downloadCSV, fmtDateTime, fmtInt, fmtMoney, parseTable } from '../lib/f
 const REASON = { ingreso: 'Ingreso', venta: 'Venta', devolucion: 'Devolución', pickup: 'Pick up', retiro: 'Retiro', ajuste: 'Ajuste', anulacion: 'Venta anulada' };
 
 export default function Stock() {
-  const { isAdmin, isOwner, brandId, brands } = useSession();
+  const { isAdmin, isOwner, isSeller, brandId, brands } = useSession();
   const [q, setQ] = useState('');
   const [view, setView] = useState('todos');
   const { data, error, loading, reload } = useApi('/products', { brand_id: brandId, include_inactive: view === 'inactivos' ? '1' : '' });
@@ -34,9 +34,9 @@ export default function Stock() {
   return (
     <>
       <PageHeader eyebrow={isAdmin ? 'Inventario de la tienda' : 'Tu mercadería en MAJA'} title="Stock">
-        <Button variant="outline" onClick={exportCSV} disabled={!rows.length}><Download size={15} />Exportar</Button>
-        <Button variant="outline" onClick={() => setModal({ type: 'import' })}><Upload size={15} />Importar planilla</Button>
-        <Button onClick={() => setModal({ type: 'product', product: { sku: '', name: '', variant: '', price: '', min_stock: '', stock: '', active: true, brand_id: brandId } })}><Plus size={16} />Artículo</Button>
+        {!isSeller && <Button variant="outline" onClick={exportCSV} disabled={!rows.length}><Download size={15} />Exportar</Button>}
+        {!isSeller && <Button variant="outline" onClick={() => setModal({ type: 'import' })}><Upload size={15} />Importar planilla</Button>}
+        {!isSeller && <Button onClick={() => setModal({ type: 'product', product: { sku: '', name: '', variant: '', price: '', min_stock: '', stock: '', active: true, brand_id: brandId } })}><Plus size={16} />Artículo</Button>}
       </PageHeader>
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -74,7 +74,7 @@ export default function Stock() {
                     <td className="whitespace-nowrap text-right">
                       <button title="Movimientos" onClick={() => setModal({ type: 'moves', product: p })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><History size={15} /></button>
                       {isOwner && <button title="Ajustar stock" onClick={() => setModal({ type: 'adjust', product: p })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><SlidersHorizontal size={15} /></button>}
-                      <button title="Editar" onClick={() => setModal({ type: 'product', product: { ...p, price: String(p.price), min_stock: String(p.min_stock) } })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><Pencil size={15} /></button>
+                      {!isSeller && <button title="Editar" onClick={() => setModal({ type: 'product', product: { ...p, price: String(p.price), min_stock: String(p.min_stock) } })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><Pencil size={15} /></button>}
                     </td>
                   </tr>
                 ))}

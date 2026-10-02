@@ -72,8 +72,12 @@ accessRouter.get('/brands', auth, (req, res) => {
   // el token de Biller nunca sale del servidor
   res.json(rows.map(({ biller_token, ...r }) => {
     const out = { ...r, has_biller_token: !!biller_token, plus_iva: !!r.plus_iva, active: !!r.active };
-    // la vendedora no ve las condiciones comerciales de cada marca
-    if (req.user.role === 'vendedora') { delete out.commission_pct; delete out.monthly_fee; delete out.plus_iva; delete out.notes; }
+    // las notas internas de MAJA sobre la marca son solo de la dueña
+    if (req.user.role !== 'admin') delete out.notes;
+    // la vendedora solo necesita saber a nombre de quién factura: nada de condiciones comerciales ni contactos
+    if (req.user.role === 'vendedora') {
+      return { id: out.id, name: out.name, razon_social: out.razon_social, billing_mode: out.billing_mode, active: out.active, product_count: out.product_count, stock_units: out.stock_units };
+    }
     return out;
   }));
 });

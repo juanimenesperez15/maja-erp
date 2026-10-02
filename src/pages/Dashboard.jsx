@@ -5,6 +5,7 @@ import { useSession, useApi } from '../lib/session.jsx';
 import { Badge, Card, Empty, ErrorNote, Loading, PageHeader, Stat, STATUS_LABEL, STATUS_TONE, Button } from '../components/ui.jsx';
 import { DailyChart, MonthsChart, fillDays } from '../components/charts.jsx';
 import StoreOverview from './StoreOverview.jsx';
+import SellerHome from './SellerHome.jsx';
 import { currentPeriod, fmtInt, fmtMoney, fmtPeriod, fmtPeriodShort, shiftPeriod, fmtDateTime } from '../lib/format.js';
 
 export function Delta({ now, before, suffix = 'vs. mes anterior' }) {
@@ -22,9 +23,11 @@ export function Delta({ now, before, suffix = 'vs. mes anterior' }) {
 export default function Dashboard() {
   const { isAdmin, isSeller, brands, brandsLoaded, brandId, user } = useSession();
   const [period, setPeriod] = useState(currentPeriod());
-  const { data, error, loading } = useApi('/dashboard', { brand_id: brandId, period });
+  const { data, error, loading } = useApi(isSeller ? null : '/dashboard', { brand_id: brandId, period });
   const brandName = brandId ? brands.find((b) => String(b.id) === String(brandId))?.name ?? user.brand_name : null;
 
+  // la vendedora tiene su tablero del día, sin reportes
+  if (isSeller) return <SellerHome />;
   if (isAdmin && !brandsLoaded) return <Loading />;
   if (isAdmin && !brands.length) {
     return (

@@ -40,7 +40,11 @@ function productBody(b) {
   return { sku, name, variant: str(b.variant), barcode: str(b.barcode), price: num(b.price), min_stock: Math.max(0, Math.trunc(num(b.min_stock))), active: b.active === false ? 0 : 1 };
 }
 
+// la vendedora no crea ni edita artículos (precios): los nuevos entran con un ingreso de mercadería
+const noSeller = (req) => { if (req.user.role === 'vendedora') throw forbidden('Las vendedoras no crean ni editan artículos'); };
+
 stockRouter.post('/products', (req, res) => {
+  noSeller(req);
   const brandId = requireBrand(req, req.body.brand_id);
   const p = productBody(req.body);
   if (db.prepare('SELECT 1 FROM products WHERE brand_id = ? AND sku = ?').get(brandId, p.sku)) throw bad(`El SKU ${p.sku} ya existe en esta marca`);
@@ -58,6 +62,7 @@ stockRouter.post('/products', (req, res) => {
 });
 
 stockRouter.put('/products/:id', (req, res) => {
+  noSeller(req);
   const prod = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(req.params.id));
   if (!prod) throw notFound('Producto inexistente');
   canTouch(req, prod);
@@ -93,6 +98,7 @@ stockRouter.get('/products/:id/movements', (req, res) => {
 
 // Alta masiva desde planilla: crea o actualiza por SKU. El stock solo lo carga MAJA.
 stockRouter.post('/products/import', (req, res) => {
+  noSeller(req);
   const brandId = requireBrand(req, req.body.brand_id);
   const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
   if (!rows.length) throw bad('La planilla está vacía');

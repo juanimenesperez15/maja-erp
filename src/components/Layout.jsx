@@ -68,7 +68,7 @@ export default function Layout() {
           <div className="font-display text-[22px] lg:hidden">MAJA</div>
           <div className="ml-auto flex items-center gap-2">
             {isAdmin ? (
-              !['/marcas', '/usuarios', '/cuenta', '/objetivos', '/tarjetas'].includes(loc.pathname) && (
+              !['/marcas', '/usuarios', '/cuenta', '/objetivos', '/tarjetas'].includes(loc.pathname) && !(isSeller && loc.pathname === '/') && (
                 <label className="flex items-center gap-2">
                   <span className="hidden text-[12px] text-muted sm:inline">Viendo</span>
                   <select className="field h-9 w-auto min-w-[190px] py-1.5" value={brandId} onChange={(e) => setBrandFilter(e.target.value)}>
