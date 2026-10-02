@@ -7,13 +7,14 @@ import { accessRouter } from './routes/access.js';
 import { stockRouter } from './routes/stock.js';
 import { ordersRouter } from './routes/orders.js';
 import { moneyRouter } from './routes/money.js';
+import { insightsRouter } from './routes/insights.js';
 
 const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '5mb' }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
-app.use('/api', accessRouter, stockRouter, ordersRouter, moneyRouter);
+app.use('/api', accessRouter, stockRouter, ordersRouter, moneyRouter, insightsRouter);
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Ruta inexistente')));
 
 const dist = path.resolve('dist');

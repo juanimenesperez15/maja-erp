@@ -55,7 +55,7 @@ export function Badge({ tone = 'neutral', children }) {
   const tones = {
     neutral: 'bg-sunk text-ink2', ok: 'bg-ok-soft text-ok', warn: 'bg-warn-soft text-warn', bad: 'bg-bad-soft text-bad', accent: 'bg-accent-soft text-accent', ink: 'bg-ink text-paper',
   };
-  return <span className={cx('inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px] font-semibold', tones[tone])}>{children}</span>;
+  return <span className={cx('inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12px] font-semibold', tones[tone])}>{children}</span>;
 }
 
 export function Empty({ icon: Icon, title, children, action }) {
@@ -102,9 +102,9 @@ export function Modal({ open, onClose, title, children, footer, wide }) {
 
 export function Stat({ label, value, sub, tone, className, delay = 0 }) {
   return (
-    <div className={cx('rise rounded-xl border border-line bg-card px-5 py-4', className)} style={{ animationDelay: `${delay}ms` }}>
+    <div className={cx('rise min-w-0 rounded-xl border border-line bg-card px-5 py-4', className)} style={{ animationDelay: `${delay}ms` }}>
       <div className="eyebrow">{label}</div>
-      <div className={cx('num mt-2 font-display text-[36px] leading-none', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad')}>{value}</div>
+      <div className={cx('num mt-2 truncate font-display text-[clamp(26px,2.6vw,36px)] leading-none', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad')}>{value}</div>
       {sub && <div className="mt-2 text-[12px] text-muted">{sub}</div>}
     </div>
   );

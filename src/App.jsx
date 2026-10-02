@@ -11,9 +11,10 @@ import Settlements from './pages/Settlements.jsx';
 import Brands from './pages/Brands.jsx';
 import UsersPage from './pages/Users.jsx';
 import Account from './pages/Account.jsx';
+import Goals from './pages/Goals.jsx';
 
 export default function App() {
-  const { loading, user, isAdmin } = useSession();
+  const { loading, user, isOwner, isSeller } = useSession();
   if (loading) return <Loading />;
   if (!user) return <Login />;
   return (
@@ -24,10 +25,11 @@ export default function App() {
         <Route path="stock" element={<Stock />} />
         <Route path="pedidos" element={<Orders kind="pedidos" />} />
         <Route path="pickups" element={<Orders kind="pickups" />} />
-        <Route path="liquidaciones" element={<Settlements />} />
+        {!isSeller && <Route path="liquidaciones" element={<Settlements />} />}
         <Route path="cuenta" element={<Account />} />
-        {isAdmin && <Route path="marcas" element={<Brands />} />}
-        {isAdmin && <Route path="usuarios" element={<UsersPage />} />}
+        {isOwner && <Route path="objetivos" element={<Goals />} />}
+        {isOwner && <Route path="marcas" element={<Brands />} />}
+        {isOwner && <Route path="usuarios" element={<UsersPage />} />}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

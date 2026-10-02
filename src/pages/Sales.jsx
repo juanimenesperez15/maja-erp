@@ -4,7 +4,7 @@ import { api, getToken } from '../lib/api.js';
 import { useApi, useSession } from '../lib/session.jsx';
 import { Badge, Button, Card, Empty, ErrorNote, Field, Input, Loading, Modal, PageHeader, Select, Stat, useToast, cx } from '../components/ui.jsx';
 import ProductPicker from '../components/ProductPicker.jsx';
-import { currentPeriod, downloadCSV, fmtDate, fmtInt, fmtMoney, todayISO } from '../lib/format.js';
+import { currentPeriod, downloadCSV, fmtDate, fmtInt, fmtMoney, parseNum, todayISO } from '../lib/format.js';
 
 const PAYMENT_METHODS = ['Efectivo', 'Débito', 'Crédito', 'Transferencia', 'Mercado Pago', 'Otro'];
 const BILLING_HINT = {
@@ -41,7 +41,7 @@ function InvoiceCell({ g, isAdmin, onRetry, toast }) {
 }
 
 export default function Sales() {
-  const { isAdmin, brandId } = useSession();
+  const { isAdmin, isOwner, brandId } = useSession();
   const [range, setRange] = useState({ from: `${currentPeriod()}-01`, to: todayISO() });
   const [showVoided, setShowVoided] = useState(false);
   const { data, error, loading, reload } = useApi('/sales', { brand_id: brandId, from: range.from, to: range.to, include_voided: showVoided ? '1' : '' });
@@ -140,7 +140,7 @@ export default function Sales() {
                     <td className="whitespace-nowrap align-top text-ink2">{g.payment_method || '—'}</td>
                     <td className="align-top"><InvoiceCell g={g} isAdmin={isAdmin} onRetry={() => retry(g)} toast={toast} /></td>
                     <td className="num whitespace-nowrap text-right align-top font-semibold">{fmtMoney(g.items.reduce((a, i) => a + i.total, 0))}</td>
-                    {isAdmin && <td className="text-right align-top">{!g.voided && <button title="Anular venta" onClick={() => voidSale(g)} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad"><Ban size={15} /></button>}</td>}
+                    {isAdmin && <td className="text-right align-top">{!g.voided && isOwner && <button title="Anular venta" onClick={() => voidSale(g)} className="rounded-md p-1.5 text-muted hover:bg-bad-soft hover:text-bad"><Ban size={15} /></button>}</td>}
                   </tr>
                 ))}
               </tbody>
@@ -178,7 +178,7 @@ function NewSaleModal({ initialBrand, onClose, onSaved }) {
   });
   const addFree = () => setItems((l) => [...l, { product_id: null, description: '', qty: '1', unit_price: '', discount_pct: '', free: true }]);
   const upd = (i, k, v) => setItems((l) => l.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
-  const lineTotal = (it) => (Number(it.qty) || 0) * (Number(String(it.unit_price).replace(',', '.')) || 0) * (1 - (Number(it.discount_pct) || 0) / 100);
+  const lineTotal = (it) => (Number(it.qty) || 0) * (parseNum(it.unit_price) || 0) * (1 - (Number(it.discount_pct) || 0) / 100);
   const total = items.reduce((a, it) => a + lineTotal(it), 0);
   const isReturn = items.length > 0 && items.some((it) => Number(it.qty) < 0);
   const electronic = brand && brand.billing_mode !== 'manual';

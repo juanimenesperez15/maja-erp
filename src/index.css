@@ -28,7 +28,6 @@ body {
   font-family: 'Schibsted Grotesk', system-ui, sans-serif;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: 'tnum' 1;
 }
 /* grano muy sutil para que el papel no sea plano */
 body::before {

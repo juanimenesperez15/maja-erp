@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, tx } from '../db.js';
-import { auth, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num } from '../lib.js';
+import { auth, isStaff, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num } from '../lib.js';
 
 export const ordersRouter = Router();
 ordersRouter.use(auth);
@@ -77,7 +77,7 @@ ordersRouter.post('/orders', (req, res) => {
 
 // Armado / control: MAJA va marcando cuánto armó (pick up, retiro) o cuánto llegó (ingreso) de cada línea.
 ordersRouter.put('/orders/:id/pick', (req, res) => {
-  if (req.user.role !== 'admin') throw forbidden('El armado lo hace MAJA');
+  if (!isStaff(req.user)) throw forbidden('El armado lo hace MAJA');
   const order = loadOrder(req, req.params.id);
   if (order.status === 'completado' || order.status === 'cancelado') throw bad('Este pedido ya está cerrado');
   const lines = Array.isArray(req.body.items) ? req.body.items : [];
@@ -128,7 +128,7 @@ ordersRouter.put('/orders/:id/status', (req, res) => {
     }
     db.prepare(`UPDATE orders SET status = ?, admin_notes = COALESCE(?, admin_notes), picked_up_by = COALESCE(?, picked_up_by), updated_at = datetime('now'),
       completed_at = CASE WHEN ? = 'completado' THEN datetime('now') ELSE completed_at END WHERE id = ?`)
-      .run(next, req.user.role === 'admin' ? str(req.body.admin_notes) : null, next === 'completado' ? pickedUpBy : null, next, order.id);
+      .run(next, isStaff(req.user) ? str(req.body.admin_notes) : null, next === 'completado' ? pickedUpBy : null, next, order.id);
   });
   res.json(loadOrder(req, order.id));
 });

@@ -70,7 +70,12 @@ accessRouter.get('/brands', auth, (req, res) => {
       (SELECT COUNT(*) FROM users u WHERE u.brand_id = b.id AND u.active = 1) AS user_count
     FROM brands b ${where} ORDER BY b.active DESC, b.name`).all(...args);
   // el token de Biller nunca sale del servidor
-  res.json(rows.map(({ biller_token, ...r }) => ({ ...r, has_biller_token: !!biller_token, plus_iva: !!r.plus_iva, active: !!r.active })));
+  res.json(rows.map(({ biller_token, ...r }) => {
+    const out = { ...r, has_biller_token: !!biller_token, plus_iva: !!r.plus_iva, active: !!r.active };
+    // la vendedora no ve las condiciones comerciales de cada marca
+    if (req.user.role === 'vendedora') { delete out.commission_pct; delete out.monthly_fee; delete out.plus_iva; delete out.notes; }
+    return out;
+  }));
 });
 
 accessRouter.post('/brands', auth, adminOnly, (req, res) => {
@@ -106,7 +111,7 @@ accessRouter.get('/users', auth, adminOnly, (_req, res) => {
 });
 
 function userBody(body, isNew) {
-  const role = body.role === 'admin' ? 'admin' : 'marca';
+  const role = ['admin', 'vendedora', 'marca'].includes(body.role) ? body.role : 'marca';
   const brandId = role === 'marca' ? Number(body.brand_id) : null;
   if (!str(body.name) || !str(body.email)) throw bad('Completá nombre y email');
   if (role === 'marca' && !db.prepare('SELECT 1 FROM brands WHERE id = ?').get(brandId)) throw bad('Elegí la marca del usuario');

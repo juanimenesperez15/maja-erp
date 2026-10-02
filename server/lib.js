@@ -60,8 +60,18 @@ export function auth(req, _res, next) {
   req.user = user;
   next();
 }
+// admin = dueña (ve y configura todo) · vendedora = atiende la tienda · marca = solo lo suyo
+export const isStaff = (u) => u?.role === 'admin' || u?.role === 'vendedora';
 export function adminOnly(req, _res, next) {
-  if (req.user?.role !== 'admin') return next(forbidden());
+  if (req.user?.role !== 'admin') return next(forbidden('Solo la dueña puede hacer esto'));
+  next();
+}
+export function staffOnly(req, _res, next) {
+  if (!isStaff(req.user)) return next(forbidden());
+  next();
+}
+export function notSeller(req, _res, next) {
+  if (req.user?.role === 'vendedora') return next(forbidden('Las vendedoras no ven comisiones ni cuotas'));
   next();
 }
 
@@ -149,6 +159,7 @@ export const num = (v, def = 0) => {
   if (v === undefined || v === null || v === '') return def;
   let s = String(v).replace(/[\s$]/g, '');
   if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); // formato uruguayo 1.234,50
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ''); // 150.000 = ciento cincuenta mil
   const n = Number(s);
   return Number.isFinite(n) ? n : def;
 };

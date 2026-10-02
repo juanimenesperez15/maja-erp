@@ -8,7 +8,7 @@ import { downloadCSV, fmtDateTime, fmtInt, fmtMoney, parseTable } from '../lib/f
 const REASON = { ingreso: 'Ingreso', venta: 'Venta', devolucion: 'Devolución', pickup: 'Pick up', retiro: 'Retiro', ajuste: 'Ajuste', anulacion: 'Venta anulada' };
 
 export default function Stock() {
-  const { isAdmin, brandId, brands } = useSession();
+  const { isAdmin, isOwner, brandId, brands } = useSession();
   const [q, setQ] = useState('');
   const [view, setView] = useState('todos');
   const { data, error, loading, reload } = useApi('/products', { brand_id: brandId, include_inactive: view === 'inactivos' ? '1' : '' });
@@ -73,7 +73,7 @@ export default function Stock() {
                     <td className="num text-right text-ink2">{fmtInt(p.sold_30d)}</td>
                     <td className="whitespace-nowrap text-right">
                       <button title="Movimientos" onClick={() => setModal({ type: 'moves', product: p })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><History size={15} /></button>
-                      {isAdmin && <button title="Ajustar stock" onClick={() => setModal({ type: 'adjust', product: p })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><SlidersHorizontal size={15} /></button>}
+                      {isOwner && <button title="Ajustar stock" onClick={() => setModal({ type: 'adjust', product: p })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><SlidersHorizontal size={15} /></button>}
                       <button title="Editar" onClick={() => setModal({ type: 'product', product: { ...p, price: String(p.price), min_stock: String(p.min_stock) } })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink"><Pencil size={15} /></button>
                     </td>
                   </tr>
@@ -87,7 +87,7 @@ export default function Stock() {
       {modal?.type === 'product' && <ProductModal product={modal.product} brands={brands} isAdmin={isAdmin} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
       {modal?.type === 'adjust' && <AdjustModal product={modal.product} onClose={() => setModal(null)} onSaved={() => { setModal(null); reload(); }} />}
       {modal?.type === 'moves' && <MovesModal product={modal.product} onClose={() => setModal(null)} />}
-      {modal?.type === 'import' && <ImportModal brandId={brandId} brands={brands} isAdmin={isAdmin} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
+      {modal?.type === 'import' && <ImportModal brandId={brandId} brands={brands} isAdmin={isAdmin} isOwner={isOwner} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); }} />}
     </>
   );
 }
@@ -197,7 +197,7 @@ function MovesModal({ product, onClose }) {
   );
 }
 
-function ImportModal({ brandId: initialBrand, brands, isAdmin, onClose, onDone }) {
+function ImportModal({ brandId: initialBrand, brands, isAdmin, isOwner, onClose, onDone }) {
   const toast = useToast();
   const [brandId, setBrandId] = useState(initialBrand);
   const [text, setText] = useState('');
@@ -229,14 +229,14 @@ function ImportModal({ brandId: initialBrand, brands, isAdmin, onClose, onDone }
       <div className="space-y-4">
         {isAdmin && <div className="max-w-xs"><BrandSelect value={brandId} onChange={setBrandId} brands={brands} /></div>}
         <p className="text-[13px] text-ink2">
-          Subí un CSV o pegá las columnas copiadas desde Excel. Encabezados que se reconocen: <b>SKU</b> (o Código), <b>Nombre</b> (o Artículo), <b>Variante</b> (o Talle), <b>Precio</b>{isAdmin && <>, <b>Stock</b></>}. Si el SKU ya existe, se actualiza.
+          Subí un CSV o pegá las columnas copiadas desde Excel. Encabezados que se reconocen: <b>SKU</b> (o Código), <b>Nombre</b> (o Artículo), <b>Variante</b> (o Talle), <b>Precio</b>{isOwner && <>, <b>Stock</b></>}. Si el SKU ya existe, se actualiza.
         </p>
         <div className="flex items-center gap-3">
           <label className="cursor-pointer"><span className="inline-flex h-9 items-center gap-2 rounded-md border border-line bg-card px-4 text-[14px] hover:border-ink/40"><Upload size={15} />Elegir archivo</span><input type="file" accept=".csv,.txt,.tsv" className="hidden" onChange={onFile} /></label>
           <span className="text-[12px] text-muted">o pegá abajo</span>
         </div>
-        <Textarea className="min-h-[140px] font-mono text-[12px]" value={text} onChange={(e) => setText(e.target.value)} placeholder={'SKU;Nombre;Variante;Precio' + (isAdmin ? ';Stock' : '')} />
-        {isAdmin && (
+        <Textarea className="min-h-[140px] font-mono text-[12px]" value={text} onChange={(e) => setText(e.target.value)} placeholder={'SKU;Nombre;Variante;Precio' + (isOwner ? ';Stock' : '')} />
+        {isOwner && (
           <label className="flex items-center gap-2 text-[13px]">
             <input type="checkbox" checked={applyStock} onChange={(e) => setApplyStock(e.target.checked)} className="h-4 w-4 accent-[#1d1b18]" />
             Tomar la columna Stock como stock actual (registra un ajuste por la diferencia)
@@ -247,8 +247,8 @@ function ImportModal({ brandId: initialBrand, brands, isAdmin, onClose, onDone }
             <Badge tone={valid.length === rows.length ? 'ok' : 'warn'}>{valid.length} de {rows.length} filas válidas</Badge>
             <div className="mt-2 max-h-48 overflow-auto rounded-lg border border-line">
               <table className="tbl text-[12px]">
-                <thead><tr><th>SKU</th><th>Nombre</th><th>Variante</th><th>Precio</th>{isAdmin && <th>Stock</th>}</tr></thead>
-                <tbody>{rows.slice(0, 30).map((r, i) => <tr key={i} className={r.sku && r.name ? '' : 'text-bad'}><td>{r.sku}</td><td>{r.name}</td><td>{r.variant}</td><td>{r.price}</td>{isAdmin && <td>{r.stock}</td>}</tr>)}</tbody>
+                <thead><tr><th>SKU</th><th>Nombre</th><th>Variante</th><th>Precio</th>{isOwner && <th>Stock</th>}</tr></thead>
+                <tbody>{rows.slice(0, 30).map((r, i) => <tr key={i} className={r.sku && r.name ? '' : 'text-bad'}><td>{r.sku}</td><td>{r.name}</td><td>{r.variant}</td><td>{r.price}</td>{isOwner && <td>{r.stock}</td>}</tr>)}</tbody>
               </table>
             </div>
           </div>

@@ -7,6 +7,14 @@ export const fmtMoney = (n, decimals = false) => {
   const v = Number(n) || 0;
   return `$ ${(decimals || !Number.isInteger(Math.round(v * 100) / 100) ? money2 : money).format(v)}`;
 };
+/** Lee números escritos a la uruguaya: "1.234,50", "150.000", "2500". */
+export function parseNum(v) {
+  let s = String(v ?? '').replace(/[\s$]/g, '');
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = Number(s);
+  return s === '' || !Number.isFinite(n) ? null : n;
+}
 export const fmtInt = (n) => int.format(Number(n) || 0);
 export const fmtPct = (n) => `${money.format(Number(n) || 0)} %`;
 

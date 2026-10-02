@@ -1,6 +1,9 @@
 # MAJA ERP
 
-Sistema de gestión de MAJA Multibrand: cada marca tiene su acceso y ve solo lo suyo.
+Sistema de gestión de MAJA Multibrand. Tres perfiles:
+- **Dueña:** ve y configura todo: tablero con cómo va cada marca contra su objetivo, objetivos mensuales, liquidaciones, marcas y usuarios.
+- **Vendedora:** registra ventas, arma pick ups, recibe mercadería y ve stock y avance de objetivos; no ve comisiones, cuotas ni saldos, no anula ventas ni ajusta stock.
+- **Marca:** ve solo lo suyo.
 
 | Módulo | MAJA (admin) | Marca |
 |---|---|---|

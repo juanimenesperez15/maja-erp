@@ -173,6 +173,39 @@ ensureColumn('sales', 'void_cfe_number', 'TEXT');
 // armado de pedidos y quién retiró
 ensureColumn('order_items', 'picked_qty', 'INTEGER NOT NULL DEFAULT 0');
 ensureColumn('orders', 'picked_up_by', 'TEXT');
+// perfil de vendedora: la tabla users se creó con CHECK (role IN ('admin','marca')) y SQLite no deja cambiarlo
+const usersSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'").get()?.sql ?? '';
+if (!usersSql.includes('vendedora')) {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec(`BEGIN;
+    CREATE TABLE users_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('admin','vendedora','marca')),
+      brand_id INTEGER REFERENCES brands(id),
+      active INTEGER NOT NULL DEFAULT 1,
+      last_login_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    INSERT INTO users_new SELECT id, email, name, password_hash, role, brand_id, active, last_login_at, created_at FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_new RENAME TO users;
+    COMMIT;`);
+  db.exec('PRAGMA foreign_keys = ON');
+}
+
+// objetivos de venta mensuales por marca
+db.exec(`CREATE TABLE IF NOT EXISTS sales_goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  brand_id INTEGER NOT NULL REFERENCES brands(id),
+  period TEXT NOT NULL,
+  amount REAL NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (brand_id, period)
+)`);
+
 db.exec(`UPDATE sales SET brand_id = (SELECT si.brand_id FROM sale_items si WHERE si.sale_id = sales.id LIMIT 1) WHERE brand_id IS NULL`);
 db.exec(`UPDATE sales SET invoice_number = ticket WHERE invoice_number IS NULL AND ticket IS NOT NULL`);
 

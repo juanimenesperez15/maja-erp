@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, tx } from '../db.js';
 import {
-  auth, adminOnly, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num, round2, today, currentPeriod,
+  auth, adminOnly, staffOnly, notSeller, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num, round2, today, currentPeriod,
   shiftPeriod, isPeriod, settlementFor, brandPeriods, isPeriodClosed,
 } from '../lib.js';
 import { PAYMENT_METHODS, credentialsFor, emitForSale, emitVoidCreditNote, pdfForSale } from '../billing.js';
@@ -31,7 +31,7 @@ moneyRouter.get('/sales', (req, res) => {
   res.json({ from, to, rows, payment_methods: PAYMENT_METHODS });
 });
 
-moneyRouter.post('/sales', adminOnly, async (req, res) => {
+moneyRouter.post('/sales', staffOnly, async (req, res) => {
   const date = str(req.body.date) || today();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw bad('Fecha inválida');
   if (date > today()) throw bad('La fecha no puede ser futura');
@@ -103,7 +103,7 @@ moneyRouter.post('/sales', adminOnly, async (req, res) => {
   res.json({ id, invoice_status: sale.invoice_status, invoice_number: sale.invoice_number, invoice_error: sale.invoice_error });
 });
 
-moneyRouter.post('/sales/:id/invoice', adminOnly, async (req, res) => {
+moneyRouter.post('/sales/:id/invoice', staffOnly, async (req, res) => {
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(Number(req.params.id));
   if (!sale) throw notFound('Venta inexistente');
   if (sale.voided) throw bad('La venta está anulada');
@@ -142,7 +142,7 @@ moneyRouter.post('/sales/:id/void', adminOnly, async (req, res) => {
 });
 
 // ---------- liquidaciones (comisiones + cuotas) ----------
-moneyRouter.get('/settlements', (req, res) => {
+moneyRouter.get('/settlements', notSeller, (req, res) => {
   const brandId = scopeBrand(req, req.query.brand_id);
   if (brandId) {
     const brand = db.prepare('SELECT * FROM brands WHERE id = ?').get(brandId);
@@ -154,7 +154,7 @@ moneyRouter.get('/settlements', (req, res) => {
   res.json({ mode: 'period', period, rows: brands.filter((b) => brandPeriods(b).includes(period)).map((b) => settlementFor(b, period)) });
 });
 
-moneyRouter.get('/settlements/detail', (req, res) => {
+moneyRouter.get('/settlements/detail', notSeller, (req, res) => {
   const brandId = requireBrand(req, req.query.brand_id);
   const period = req.query.period;
   if (!isPeriod(period)) throw bad('Mes inválido');
@@ -264,15 +264,22 @@ moneyRouter.get('/dashboard', (req, res) => {
     return { brand_id: b.id, brand_name: b.name, sales: s?.sales_total ?? 0, units: s?.units ?? 0, commission: s?.commission ?? 0, fee: s?.fee ?? 0, total: s?.total ?? 0, owed: round2(owed) };
   });
 
+  // la vendedora ve ventas y stock, no comisiones, cuotas ni saldos
+  if (req.user.role === 'vendedora') {
+    byBrand.forEach((b) => { delete b.commission; delete b.fee; delete b.total; delete b.owed; });
+  }
+  const money = req.user.role === 'vendedora' ? {} : {
+    commission: round2(byBrand.reduce((a, b) => a + b.commission, 0)),
+    fees: round2(byBrand.reduce((a, b) => a + b.fee, 0)),
+    to_pay: round2(byBrand.reduce((a, b) => a + b.total, 0)),
+    owed: round2(byBrand.reduce((a, b) => a + b.owed, 0)),
+  };
   res.json({
     period, prev_period: prev,
     kpis: {
       sales: round2(cur.total), units: cur.units, tickets: cur.tickets, avg_ticket: cur.tickets ? round2(cur.total / cur.tickets) : 0,
       prev_sales: round2(before.total), prev_units: before.units,
-      commission: round2(byBrand.reduce((a, b) => a + b.commission, 0)),
-      fees: round2(byBrand.reduce((a, b) => a + b.fee, 0)),
-      to_pay: round2(byBrand.reduce((a, b) => a + b.total, 0)),
-      owed: round2(byBrand.reduce((a, b) => a + b.owed, 0)),
+      ...money,
     },
     daily: daily.map((d) => ({ ...d, total: round2(d.total) })),
     months, stock, low_stock: lowStock,

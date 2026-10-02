@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, tx } from '../db.js';
-import { auth, adminOnly, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num } from '../lib.js';
+import { auth, adminOnly, isStaff, bad, notFound, forbidden, scopeBrand, requireBrand, moveStock, str, num } from '../lib.js';
 
 export const stockRouter = Router();
 stockRouter.use(auth);
@@ -45,7 +45,7 @@ stockRouter.post('/products', (req, res) => {
   const p = productBody(req.body);
   if (db.prepare('SELECT 1 FROM products WHERE brand_id = ? AND sku = ?').get(brandId, p.sku)) throw bad(`El SKU ${p.sku} ya existe en esta marca`);
   const initial = Math.trunc(num(req.body.stock));
-  if (initial && req.user.role !== 'admin') throw bad('El stock entra con un pedido de ingreso de mercadería');
+  if (initial && !isStaff(req.user)) throw bad('El stock entra con un pedido de ingreso de mercadería');
   const id = tx(() => {
     const r = db.prepare('INSERT INTO products (brand_id, sku, name, variant, price, min_stock, active) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(brandId, p.sku, p.name, p.variant, p.price, p.min_stock, p.active);

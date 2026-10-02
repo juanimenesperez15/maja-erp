@@ -29,7 +29,7 @@ export default function UsersPage() {
                   <tr key={u.id} className={u.active ? '' : 'opacity-50'}>
                     <td className="font-medium">{u.name}{u.id === me.id && <span className="ml-1.5 text-[12px] text-muted">(vos)</span>}</td>
                     <td className="text-ink2">{u.email}</td>
-                    <td>{u.role === 'admin' ? <Badge tone="ink">MAJA · admin</Badge> : <Badge tone="accent">{u.brand_name}</Badge>}{!u.active && <span className="ml-1.5"><Badge tone="bad">Inactivo</Badge></span>}</td>
+                    <td>{u.role === 'admin' ? <Badge tone="ink">Dueña · MAJA</Badge> : u.role === 'vendedora' ? <Badge tone="ok">Vendedora · MAJA</Badge> : <Badge tone="accent">{u.brand_name}</Badge>}{!u.active && <span className="ml-1.5"><Badge tone="bad">Inactivo</Badge></span>}</td>
                     <td className="text-[13px] text-muted">{u.last_login_at ? fmtDateTime(u.last_login_at) : 'Nunca'}</td>
                     <td className="text-right"><button onClick={() => setEditing({ ...EMPTY, ...u, brand_id: u.brand_id ?? '', password: '' })} className="rounded-md p-1.5 text-muted hover:bg-sunk hover:text-ink" aria-label="Editar"><Pencil size={15} /></button></td>
                   </tr>
@@ -40,7 +40,7 @@ export default function UsersPage() {
         )}
       </Card>
       <p className="mt-4 max-w-2xl text-[13px] text-muted">
-        Un usuario de marca ve solo lo suyo: su tablero, su stock, sus pedidos y pick ups, sus ventas y sus comisiones y cuotas. Los administradores de MAJA ven todo.
+        <b>Dueña:</b> ve y configura todo (indicadores, objetivos, liquidaciones, marcas, usuarios). <b>Vendedora:</b> registra ventas, arma pick ups, recibe mercadería y ve el stock; no ve comisiones, cuotas ni saldos, y no anula ventas ni ajusta stock. <b>Marca:</b> ve solo lo suyo.
       </p>
       {editing && <UserModal user={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
     </>
@@ -78,7 +78,8 @@ function UserModal({ user, onClose, onSaved }) {
           <Field label="Tipo de acceso">
             <Select value={form.role} onChange={set('role')}>
               <option value="marca">Marca</option>
-              <option value="admin">Administrador MAJA</option>
+              <option value="vendedora">Vendedora de MAJA</option>
+              <option value="admin">Dueña / administración de MAJA</option>
             </Select>
           </Field>
           {form.role === 'marca' && (

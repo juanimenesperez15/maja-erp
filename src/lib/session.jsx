@@ -48,12 +48,16 @@ export function SessionProvider({ children }) {
     try { localStorage.setItem(BRAND_KEY, v); } catch { /* sin storage */ }
   };
 
-  const isAdmin = state.user?.role === 'admin';
+  // isAdmin = personal de MAJA (dueña o vendedora): opera la tienda y ve todas las marcas.
+  // isOwner = la dueña: además ve plata (comisiones, cuotas, saldos), objetivos y configura.
+  const isOwner = state.user?.role === 'admin';
+  const isSeller = state.user?.role === 'vendedora';
+  const isAdmin = isOwner || isSeller;
   // la marca siempre opera sobre la suya; el admin elige en la barra superior
   const brandId = isAdmin ? ((brands || []).some((b) => String(b.id) === String(brandFilter)) ? brandFilter : '') : String(state.user?.brand_id ?? '');
 
   return (
-    <SessionCtx.Provider value={{ ...state, isAdmin, brands: brands || [], brandsLoaded: brands !== null, refreshBrands, brandId, setBrandFilter, signIn, logout }}>
+    <SessionCtx.Provider value={{ ...state, isAdmin, isOwner, isSeller, brands: brands || [], brandsLoaded: brands !== null, refreshBrands, brandId, setBrandFilter, signIn, logout }}>
       {children}
     </SessionCtx.Provider>
   );
